@@ -13,6 +13,8 @@ classdef SeggyDs < handle
     properties
         robot;
         originTranslation = [0.3,0,0.05]; % Set at roughly the top of the base unit and at max reach
+        minutesArray = [9,9]; % initialise as impossible time for bug checking
+        hoursArray = [9,9]; % initialise as impossible time for bug checking
     end
 
     methods 
@@ -20,8 +22,6 @@ classdef SeggyDs < handle
             %% To do list
             % - test number functions
             % - Make number functions accept a custom origin
-            % - convert DateTime string to int array
-            % - build function to take current DateTime and make robot move
 
             %% Questions
             % - Do I make another function to raise and lower the pen?
@@ -41,7 +41,11 @@ classdef SeggyDs < handle
             self.robot.model.teach(loadPose, 'noname', 'noarrow', 'notiles', 'nojoints');
             
 			input('Press enter to begin')
-            self.Number8();
+            self.UpdateTime();
+
+            display(self.hoursArray);
+            display(self.minutesArray);
+            WriteNumber(self, self.minutesArray(1));
 			
 		end
 	end
@@ -799,6 +803,81 @@ classdef SeggyDs < handle
             self.Number1();
             self.SegmentF();
             self.SegmentG();
+        end
+
+        function UpdateTime(self)
+            % get current time
+            [hour,minute] = hms(datetime('now','Format','HH:mm'));
+
+            %Convert hour and minute values to individual digits
+            hourDigits=str2double(regexp(num2str(hour),'\d','match'));
+            minuteDigits=str2double(regexp(num2str(minute),'\d','match'));
+
+            % Add a 0 to the start of the hours array if only 1 digit
+            hourArraySize = size(hourDigits);
+
+            if hourArraySize < 2
+                hourIntermediary = [0,hourDigits];
+            else
+                hourIntermediary = hourDigits;
+            end
+            
+            % Update global variables
+            self.hoursArray = hourIntermediary;
+            self.minutesArray = minuteDigits
+        end
+
+        function WriteNumber(self, number)
+            % Check what the number is and write it
+            if number == 0
+                self.Number0;
+            elseif number == 1
+                self.Number1;
+            elseif number == 2
+                self.Number2;
+            elseif number == 3
+                self.Number3;
+            elseif number == 4
+                self.Number4;
+            elseif number == 5
+                self.Number5;
+            elseif number == 6
+                self.Number6;
+            elseif number == 7
+                self.Number7;
+            elseif number == 8
+                self.Number8;
+            elseif number == 9
+                self.Number9;
+            else
+                % add something to log for being out of range
+            end
+        end
+
+        function WriteTime(self, XYZ)
+            % Set origin to XYZ
+            % DO THE CODE
+
+            % Get new time, move to origin and write digit 1
+            self.UpdateTime();
+            self.MoveToOrigin();
+            self.WriteNumber(self, self.hoursArray(1));
+
+            % Move origin to next digit
+            % DO THE CODE
+            self.WriteNumber(self, self.hoursArray(2));
+
+            % Dots in the middle (:) <-- that thing
+            % move the origin here
+            % DO THE CODE
+
+            % Move origin to next digit
+            % DO THE CODE
+            self.WriteNumber(self, self.minutesArray(1));
+
+            % Move origin to next digit
+            % DO THE CODE
+            self.WriteNumber(self, self.minutesArray(2));
         end
 
     end
