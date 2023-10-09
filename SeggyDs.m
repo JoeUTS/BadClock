@@ -15,6 +15,8 @@ classdef SeggyDs < handle
         originTranslation = [0.3,0,0.05]; % Set at roughly the top of the base unit and at max reach
         minutesArray = [9,9]; % initialise as impossible time for bug checking
         hoursArray = [9,9]; % initialise as impossible time for bug checking
+        estopFlag = false; % Add an e-stop flag
+        lightCurtainSafe = true;
     end
 
     methods 
@@ -878,6 +880,59 @@ classdef SeggyDs < handle
             % Move origin to next digit
             % DO THE CODE
             self.WriteNumber(self, self.minutesArray(2));
+        end
+        
+        function engageEStop(obj)
+            if ~obj.estopFlag
+                obj.estopFlag = true;
+                disp('Emergency Stop Engaged');
+            else
+                disp('Emergency Stop is already engaged');
+            end
+        end
+
+        function disengageEStop(obj)
+            if obj.estopFlag
+                obj.estopFlag = false;
+                disp('Emergency Stop Disengaged');
+            else
+                disp('Emergency Stop is not engaged');
+            end
+        end
+
+        function canResume = canResumeOperations(obj)
+            canResume = ~obj.estopFlag;
+        end
+
+        function WriteNumberWithSafety(self, number)
+            % Check if the light curtain is safe before moving
+            if self.lightCurtainSafe
+                % Check what the number is and write it
+                if number == 0
+                    self.Segment0();
+                elseif number == 1
+                    self.Segment1();
+                % Add cases for other numbers
+                else
+                    % add something to log for being out of range
+                end
+            else
+                % Light curtain is unsafe, stop the robot
+                self.engageEStop();
+                disp('Light curtain is unsafe. Emergency Stop Engaged.');
+            end
+        end
+
+        % Add a method to update the light curtain status
+        function updateLightCurtainStatus(self, safe)
+            self.lightCurtainSafe = safe;
+            if safe
+                disp('Light curtain is now safe.');
+            else
+                % If unsafe, immediately engage emergency stop
+                self.engageEStop();
+                disp('Light curtain is now unsafe. Emergency Stop Engaged.');
+            end
         end
 
     end
