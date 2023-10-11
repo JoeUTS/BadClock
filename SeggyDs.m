@@ -2,19 +2,28 @@ classdef SeggyDs < handle
     
     properties (Constant)
         originRotation = trotx(90, 'deg');
+
+        % Drawing
         segmentLength = 0.01; % 1cm
         penOffset = 0.05;
         penRaisedOffset = 0.055;
         steps = 25;
-
-        testLine = 1; % This is to display drawn lines in the simulation
+        errorTollerance = 0.005; %5mm can be lowered later 
+        
+        % Debug
+        debug = 1; % This is to display drawn lines in the simulation
     end
 
     properties
         robot;
-        originTranslation = [0.3,0,0.05]; % Set at roughly the top of the base unit and at max reach
+
+        % Drawing
+        originTranslation = [0.3,0,0.1]; % Set at roughly the top of the base unit
         minutesArray = [9,9]; % initialise as impossible time for bug checking
         hoursArray = [9,9]; % initialise as impossible time for bug checking
+        penLifted = 1; %
+
+        % Safety
         estopFlag = false; % Add an e-stop flag
         lightCurtainSafe = true;
     end
@@ -22,13 +31,10 @@ classdef SeggyDs < handle
     methods 
 		function self = SeggyDs()
             %% To do list
-            % - test number functions
-            % - Make number functions accept a custom origin
+            % - finish new format for drawing numbers
 
             %% Questions
-            % - Do I make another function to raise and lower the pen?
-            % - Do I make the segment functions skip raising/lowering if at
-            %   the start point of the next segment?
+            % Nil
 
 			clf
 			clc
@@ -41,19 +47,29 @@ classdef SeggyDs < handle
             loadPose = [0,pi/4,pi/4,pi/2,0];
             %robot.model.plot(loadPose, 'noname', 'noarrow', 'notiles', 'nojoints');
             self.robot.model.teach(loadPose, 'noname', 'noarrow', 'notiles', 'nojoints');
-            
-			input('Press enter to begin')
-            self.UpdateTime();
 
-            display(self.hoursArray);
-            display(self.minutesArray);
-            WriteNumber(self, self.minutesArray(1));
+            self.MoveToOrigin()
+
+			input('Press enter to begin')
+            self.Number0([0.20,0.05,0.1])
+            self.Number1([0.20,0,0.1])
+
+            %self.UpdateTime();
+
+            %display(self.hoursArray);
+            %display(self.minutesArray);
+            %WriteNumber(self, self.minutesArray(1));
 			
 		end
 	end
     
     methods
         function MoveToOrigin(self)
+            % Raise pen if lowered
+            if self.penLifted == 0
+                self.LiftPen();
+            end
+
             % move to origin
             % get current pose
             currentPose = self.robot.model.getpos();
@@ -65,9 +81,21 @@ classdef SeggyDs < handle
                         
             % Generate trajectory
             trajectory = jtraj(currentPose, newPose, self.steps);
-                        
+            
+            % Add debug message if enabled
+            if self.debug == 1
+                disp('moving to origin');
+            end
+
             % Animate
             for i = 1:size(trajectory)
+                % Check for EStop and cease operation if engaged
+                if self.estopFlag
+                    if self.debug == 1
+                        disp('ERROR: E-STOP ENGAGED');
+                    end
+                    return
+                end
                 animateStep = trajectory(i,:);
                 self.robot.model.animate(animateStep);
                 drawnow();
@@ -88,723 +116,841 @@ classdef SeggyDs < handle
             end
             
         end
-        
-        function SegmentA(self)
-            %% Move to Start (origin)
-            self.MoveToOrigin();
 
-            %% Lower Pen
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % is this needed?
-            
-            % Lower Pen
-            newCartesian = transl(self.originTranslation + [0, 0, self.penOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-            
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-            
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-            
-            % INSERT LOG CODE
-            
-            %% Move one segment to the right
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % is this needed?
-            
-            % Move one segment to the right
-            newCartesian = transl(self.originTranslation + [0, -self.segmentLength, self.penOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-            
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-            s = lspb(0,1,self.steps);
-            
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-            
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
+        function LiftPen(self)
+            % If pen already raised then ignore
+            if self.penLifted == 1
+                % Add debug message if enabled
+                if self.debug == 1
+                    disp('Pen already in lifted position');
+                end
+                
+                return
             end
 
-            % Used to plot drawn lines within simulation
-            if self.testLine == 1
-                plot3([currentCartesian.t(1),newCartesian(1,4)], [currentCartesian.t(2), newCartesian(2,4)], [currentCartesian.t(3), newCartesian(3,4)]);
-            end
-
-            % INSERT LOG CODE
-            
-            %% Lift Pen
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % is this needed?
-            
-            % Lift Pen
-            newCartesian = transl(self.originTranslation + [0, -self.segmentLength, self.penRaisedOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-            
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-            
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-            
-            % INSERT LOG CODE
-
-
-        end
-
-        function SegmentB(self)
-            %% move to start
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % Is this needed?
-
-            % Move to start (pen raised)
-            newCartesian = transl(self.originTranslation + [0, -self.segmentLength, self.penRaisedOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-
-            % INSERT LOG CODE
-
-            %% Lower Pen
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % is this needed?
-
-            % Lower Pen
-            newCartesian = transl(self.originTranslation + [0, -self.segmentLength, self.penOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-
-            % INSERT LOG CODE
-
-            %% Move one segment down
-            % Get current pose
+            % Get current position
             currentPose = self.robot.model.getpos();
             currentCartesian = self.robot.model.fkine(currentPose);
 
-            % Move one segment down
-            newCartesian = transl(self.originTranslation + [-self.segmentLength, -self.segmentLength, self.penOffset]);
+             % Lift Pen
+            newCartesian = transl([currentCartesian.t(1), currentCartesian.t(2), (self.originTranslation(3) + self.penRaisedOffset)]);
             newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-            s = lspb(0,1,self.steps);
-
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
             
-            % Used to plot drawn lines within simulation
-            if self.testLine == 1
-                plot3([currentCartesian.t(1),newCartesian(1,4)], [currentCartesian.t(2), newCartesian(2,4)], [currentCartesian.t(3), newCartesian(3,4)]);
-            end
-
-            % INSERT LOG CODE
-
-            %% Lift Pen
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % is this needed?
-
-            % Lift Pen
-            newCartesian = transl(self.originTranslation + [-self.segmentLength, -self.segmentLength, self.penRaisedOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
             % Generate trajectory
             trajectory = jtraj(currentPose, newPose, self.steps);
+            
+            % Add debug message if enabled
+            if self.debug == 1
+                disp('Lifting Pen');
+            end
 
             % Animate
             for i = 1:size(trajectory)
+                % Check for EStop and cease operation if engaged
+                if self.estopFlag
+                    if self.debug == 1
+                        disp('ERROR: E-STOP ENGAGED');
+                    end
+                    return
+                end
                 animateStep = trajectory(i,:);
                 self.robot.model.animate(animateStep);
                 drawnow();
             end
 
-            % INSERT LOG CODE
+            self.penLifted = 1;
 
         end
 
-        function SegmentC(self)
-            %% move to start
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % Is this needed?
-
-            % Move to start (pen raised)
-            newCartesian = transl(self.originTranslation + [-self.segmentLength, -self.segmentLength, self.penRaisedOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
+        function LowerPen(self)
+            % If pen already raised then ignore
+            if self.penLifted == 0
+                % Add debug message if enabled
+                if self.debug == 1
+                    disp('Pen already in lowered position');
+                end
+                
+                return
             end
 
-            % INSERT LOG CODE
-
-            %% Lower Pen
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % is this needed?
-
-            % Lower Pen
-            newCartesian = transl(self.originTranslation + [-self.segmentLength, -self.segmentLength, self.penOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-
-            % INSERT LOG CODE
-
-            %% Move one segment down
-            % Get current pose
+            % Get current position
             currentPose = self.robot.model.getpos();
             currentCartesian = self.robot.model.fkine(currentPose);
 
-            % Move one segment down
-            newCartesian = transl(self.originTranslation + [-2*self.segmentLength, -self.segmentLength, self.penOffset]);
+             % Lift Pen
+            newCartesian = transl([currentCartesian.t(1), currentCartesian.t(2), (self.originTranslation(3) + self.penOffset)]);
             newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-            s = lspb(0,1,self.steps);
-
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-
-            % Used to plot drawn lines within simulation
-            if self.testLine == 1
-                plot3([currentCartesian.t(1),newCartesian(1,4)], [currentCartesian.t(2), newCartesian(2,4)], [currentCartesian.t(3), newCartesian(3,4)]);
-            end
-
-            % INSERT LOG CODE
-
-            %% Lift Pen
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % is this needed?
-
-            % Lift Pen
-            newCartesian = transl(self.originTranslation + [-2*self.segmentLength, -self.segmentLength, self.penRaisedOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
+            
             % Generate trajectory
             trajectory = jtraj(currentPose, newPose, self.steps);
+            
+            % Add debug message if enabled
+            if self.debug == 1
+                disp('Lowering Pen');
+            end
 
             % Animate
             for i = 1:size(trajectory)
+                % Check for EStop and cease operation if engaged
+                if self.estopFlag
+                    if self.debug == 1
+                        disp('ERROR: E-STOP ENGAGED');
+                    end
+                    return
+                end
                 animateStep = trajectory(i,:);
                 self.robot.model.animate(animateStep);
                 drawnow();
             end
 
-            % INSERT LOG CODE
+            self.penLifted = 0;
 
         end
 
-        function SegmentD(self)
-            %% move to start
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % Is this needed?
-
-            % Move to start (pen raised)
-            newCartesian = transl(self.originTranslation + [-2*self.segmentLength, 0, self.penRaisedOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-
-            % INSERT LOG CODE
-
-            %% Lower Pen
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % is this needed?
-
-            % Lower Pen
-            newCartesian = transl(self.originTranslation + [-2*self.segmentLength, 0, self.penOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-
-            % INSERT LOG CODE
-
-            %% Move one segment to the right
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);
-            % Move one segment to the right
-            newCartesian = transl(self.originTranslation + [-2*self.segmentLength, -self.segmentLength, self.penOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-            s = lspb(0,1,self.steps);
-
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-
-            % Used to plot drawn lines within simulation
-            if self.testLine == 1
-                plot3([currentCartesian.t(1),newCartesian(1,4)], [currentCartesian.t(2), newCartesian(2,4)], [currentCartesian.t(3), newCartesian(3,4)]);
-            end
-
-            % INSERT LOG CODE
-
-            %% Lift Pen
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % is this needed?
-
-            % Lift Pen
-            newCartesian = transl(self.originTranslation + [-2*self.segmentLength, -self.segmentLength, self.penRaisedOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-
-            % INSERT LOG CODE
-
-        end
-
-        function SegmentE(self)
-            %% move to start
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % Is this needed?
-
-            % Move to start (pen raised)
-            newCartesian = transl(self.originTranslation + [-self.segmentLength, 0, self.penRaisedOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-
-            % INSERT LOG CODE
-
-            %% Lower Pen
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % is this needed?
-
-            % Lower Pen
-            newCartesian = transl(self.originTranslation + [-self.segmentLength, 0, self.penOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-
-            % INSERT LOG CODE
-
-            %% Move one segment down
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);
-
-            % Move one segment down
-            newCartesian = transl(self.originTranslation + [-2*self.segmentLength, 0, self.penOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-            s = lspb(0,1,self.steps);
-
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-
-            % Used to plot drawn lines within simulation
-            if self.testLine == 1
-                plot3([currentCartesian.t(1),newCartesian(1,4)], [currentCartesian.t(2), newCartesian(2,4)], [currentCartesian.t(3), newCartesian(3,4)]);
-            end
-
-            % INSERT LOG CODE
-
-            %% Lift Pen
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % is this needed?
-
-            % Lift Pen
-            newCartesian = transl(self.originTranslation + [-2*self.segmentLength, 0, self.penRaisedOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-
-            % INSERT LOG CODE
-
-        end
-
-        function SegmentF(self)
-            %% Move to Start (origin)
-            self.MoveToOrigin();
-
-            %% Lower Pen
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % is this needed?
-
-            % Lower Pen
-            newCartesian = transl(self.originTranslation + [0, 0, self.penOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-
-            % INSERT LOG CODE
-
-            %% Move one segment down
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);
-
-            % Move one segment down
-            newCartesian = transl(self.originTranslation + [-self.segmentLength, 0, self.penOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-            s = lspb(0,1,self.steps);
-
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-
-            % Used to plot drawn lines within simulation
-            if self.testLine == 1
-                plot3([currentCartesian.t(1),newCartesian(1,4)], [currentCartesian.t(2), newCartesian(2,4)], [currentCartesian.t(3), newCartesian(3,4)]);
-            end
-
-            % INSERT LOG CODE
-
-            %% Lift Pen
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % is this needed?
-
-            % Lift Pen
-            newCartesian = transl(self.originTranslation + [-self.segmentLength, 0, self.penRaisedOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-
-            % INSERT LOG CODE
-
-        end
-
-        function SegmentG(self)
-            %% move to start
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % Is this needed?
-
-            % Move to origin (pen raised)
-            newCartesian = transl(self.originTranslation + [-self.segmentLength, 0, self.penRaisedOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-
-            % INSERT LOG CODE
-
-            %% Lower Pen
-            % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % is this needed?
-
-            % Lower Pen
-            newCartesian = transl(self.originTranslation + [-self.segmentLength, 0, self.penOffset]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-
-            % Animate
-            for i = 1:size(trajectory)
-                animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
-                drawnow();
-            end
-
-            % INSERT LOG CODE
-
-            %% Move one segment to the right
+        function JogX(self, distance)
             % Get current pose
             currentPose = self.robot.model.getpos();
             currentCartesian = self.robot.model.fkine(currentPose);
 
             % Move one segment to the right
-            newCartesian = transl(self.originTranslation + [-self.segmentLength, -self.segmentLength, self.penOffset]);
+            newCartesian = transl(currentCartesian.t' + [distance, 0, 0]);
             newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
+            
             % Generate trajectory
             % Uses trapezoidal trajectory to keep drawing speed mostly constant
             trajectory = nan(self.steps,5);
             s = lspb(0,1,self.steps);
-
+            
             for i = 1:self.steps
                 trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
+            end
+            
+            % Add debug message if enabled
+            if self.debug == 1
+                message = sprintf('Jogging in X axis. Distance: %d', distance);
+                disp(message);
             end
 
             % Animate
             for i = 1:size(trajectory)
+                % Check for EStop and cease operation if engaged
+                if self.estopFlag
+                    if self.debug == 1
+                        disp('ERROR: E-STOP ENGAGED');
+                    end
+                    return
+                end
                 animateStep = trajectory(i,:);
                 self.robot.model.animate(animateStep);
                 drawnow();
             end
 
             % Used to plot drawn lines within simulation
-            if self.testLine == 1
-                plot3([currentCartesian.t(1),newCartesian(1,4)], [currentCartesian.t(2), newCartesian(2,4)], [currentCartesian.t(3), newCartesian(3,4)]);
+            if (self.debug == 1) && (self.penLifted == 0)
+                endPoint = self.robot.model.fkine(self.robot.model.getpos());
+                plot3([currentCartesian.t(1),endPoint.t(1)], [currentCartesian.t(2), endPoint.t(2)], [currentCartesian.t(3), endPoint.t(3)]);
             end
 
             % INSERT LOG CODE
+            % Compare where should be in theory to where is currently
+        end
 
-            %% Lift Pen
+        function JogY(self, distance)
             % Get current pose
             currentPose = self.robot.model.getpos();
             currentCartesian = self.robot.model.fkine(currentPose);  % is this needed?
 
-            % Lift Pen
-            newCartesian = transl(self.originTranslation + [-self.segmentLength, -self.segmentLength, self.penRaisedOffset]);
+            % Move one segment to the right
+            newCartesian = transl(currentCartesian.t' + [0, distance, 0]);
             newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
-
+            
             % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
+            % Uses trapezoidal trajectory to keep drawing speed mostly constant
+            trajectory = nan(self.steps,5);
+            s = lspb(0,1,self.steps);
+            
+            for i = 1:self.steps
+                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
+            end
 
+            % Add debug message if enabled
+            if self.debug == 1
+                message = sprintf('Jogging in Y axis. Distance: %d', distance);
+                disp(message);
+            end
+            
             % Animate
             for i = 1:size(trajectory)
+                % Check for EStop and cease operation if engaged
+                if self.estopFlag
+                    if self.debug == 1
+                        disp('ERROR: E-STOP ENGAGED');
+                    end
+                    return
+                end
                 animateStep = trajectory(i,:);
                 self.robot.model.animate(animateStep);
                 drawnow();
             end
 
-            % INSERT LOG CODE
+            % Used to plot drawn lines within simulation
+            if (self.debug == 1) && (self.penLifted == 0)
+                endPoint = self.robot.model.fkine(self.robot.model.getpos());
+                plot3([currentCartesian.t(1),endPoint.t(1)], [currentCartesian.t(2), endPoint.t(2)], [currentCartesian.t(3), endPoint.t(3)]);
+            end
 
+            % INSERT LOG CODE
+            % Compare where should be in theory to where is currently
         end
         
-        function Number0(self)
-            self.SegmentA();
-            self.SegmentB();
-            self.SegmentC();
-            self.SegmentD();
-            self.SegmentE();
-            self.SegmentF();
+        function Number0(self, digitOrigin)
+            % Raise pen if lowered
+            if self.penLifted == 0
+                self.LiftPen();
+            end
+
+            % Get current pose
+            currentPose = self.robot.model.getpos();
+            currentCartesian = self.robot.model.fkine(currentPose);
+            
+            % If not close to digit origin point then move there
+            if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
+                % Move to digit origin
+                newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
+                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+
+                % Generate trajectory
+                % Uses trapezoidal trajectory to keep drawing speed mostly constant
+                trajectory = nan(self.steps,5);
+                s = lspb(0,1,self.steps);
+
+                for i = 1:self.steps
+                    trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
+                end
+
+                % Add debug message if enabled
+                if self.debug == 1
+                    disp('Moving to digit origin');
+                end
+
+                % Animate
+                for i = 1:size(trajectory)
+                    % Check for EStop and cease operation if engaged
+                    if self.estopFlag
+                        if self.debug == 1
+                            disp('ERROR: E-STOP ENGAGED');
+                        end
+                        return
+                    end
+                    animateStep = trajectory(i,:);
+                    self.robot.model.animate(animateStep);
+                    drawnow();
+                end
+            end
+            
+            % Lower pen
+            self.LowerPen();
+            
+            % Add debug message if enabled
+            if self.debug == 1
+                disp('Drawing digit: 0');
+            end
+
+            % Draw digit
+            self.JogY(-self.segmentLength);
+            self.JogX(-2*self.segmentLength);
+            self.JogY(self.segmentLength);
+            self.JogX(2*self.segmentLength);
+            
+            % Raise pen
+            self.LiftPen();
         end
 
-        function Number1(self)
-            self.SegmentB();
-            self.SegmentC();
+        function Number1(self, digitOrigin)
+            % Raise pen if lowered
+            if self.penLifted == 0
+                self.LiftPen();
+            end
+
+            % Get current pose
+            currentPose = self.robot.model.getpos();
+            currentCartesian = self.robot.model.fkine(currentPose);
+
+            % If not close to digit origin point then move there
+            if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
+                % Move to digit origin
+                newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
+                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+
+                % Generate trajectory
+                % Uses trapezoidal trajectory to keep drawing speed mostly constant
+                trajectory = nan(self.steps,5);
+
+                s = lspb(0,1,self.steps);
+
+                for i = 1:self.steps
+                    trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
+                end
+
+                % Add debug message if enabled
+                if self.debug == 1
+                    disp('Moving to digit origin');
+                end
+
+                % Animate
+                for i = 1:size(trajectory)
+                    % Check for EStop and cease operation if engaged
+                    if self.estopFlag
+                        if self.debug == 1
+                            disp('ERROR: E-STOP ENGAGED');
+                        end
+                        return
+                    end
+                    animateStep = trajectory(i,:);
+                    self.robot.model.animate(animateStep);
+                    drawnow();
+                end
+            end
+            
+            % Move one segment to the right and lower pen
+            self.JogY(-self.segmentLength)
+            self.LowerPen();
+
+            % Add debug message if enabled
+            if self.debug == 1
+                disp('Drawing digit: 1');
+            end
+
+            % Draw digit
+            self.JogX(-2*self.segmentLength);
+
+            % Raise pen
+            self.LiftPen();
         end
 
-        function Number2(self)
-            self.SegmentA();
-            self.SegmentB();
-            self.SegmentG();
-            self.SegmentE();
-            self.SegmentD();
+        function Number2(self, digitOrigin)
+            % Raise pen if lowered
+            if self.penLifted == 0
+                self.LiftPen();
+            end
+
+            % Get current pose
+            currentPose = self.robot.model.getpos();
+            currentCartesian = self.robot.model.fkine(currentPose);
+
+            % If not close to digit origin point then move there
+            if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
+                % Move to digit origin
+                newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
+                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+
+                % Generate trajectory
+                % Uses trapezoidal trajectory to keep drawing speed mostly constant
+                trajectory = nan(self.steps,5);
+
+                s = lspb(0,1,self.steps);
+
+                for i = 1:self.steps
+                    trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
+                end
+
+                % Add debug message if enabled
+                if self.debug == 1
+                    disp('Moving to digit origin');
+                end
+
+                % Animate
+                for i = 1:size(trajectory)
+                    % Check for EStop and cease operation if engaged
+                    if self.estopFlag
+                        if self.debug == 1
+                            disp('ERROR: E-STOP ENGAGED');
+                        end
+                        return
+                    end
+                    animateStep = trajectory(i,:);
+                    self.robot.model.animate(animateStep);
+                    drawnow();
+                end
+            end
+
+            % Lower pen
+            self.LowerPen();
+
+            % Add debug message if enabled
+            if self.debug == 1
+                disp('Drawing digit: 2');
+            end
+
+            % Draw digit
+            self.JogY(-self.segmentLength);
+            self.JogX(-self.segmentLength);
+            self.JogY(self.segmentLength);
+            self.JogX(-self.segmentLength);
+            self.JogY(-self.segmentLength);
+
+            % Raise pen
+            self.LiftPen();
         end
 
-        function Number3(self)
-            self.SegmentA();
-            self.Number1();
-            self.SegmentD();
-            self.SegmentG();
+        function Number3(self, digitOrigin)
+            % Raise pen if lowered
+            if self.penLifted == 0
+                self.LiftPen();
+            end
+
+            % Get current pose
+            currentPose = self.robot.model.getpos();
+            currentCartesian = self.robot.model.fkine(currentPose);
+
+            % If not close to digit origin point then move there
+            if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
+                % Move to digit origin
+                newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
+                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+
+                % Generate trajectory
+                % Uses trapezoidal trajectory to keep drawing speed mostly constant
+                trajectory = nan(self.steps,5);
+
+                s = lspb(0,1,self.steps);
+
+                for i = 1:self.steps
+                    trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
+                end
+
+                % Add debug message if enabled
+                if self.debug == 1
+                    disp('Moving to digit origin');
+                end
+
+                % Animate
+                for i = 1:size(trajectory)
+                    % Check for EStop and cease operation if engaged
+                    if self.estopFlag
+                        if self.debug == 1
+                            disp('ERROR: E-STOP ENGAGED');
+                        end
+                        return
+                    end
+                    animateStep = trajectory(i,:);
+                    self.robot.model.animate(animateStep);
+                    drawnow();
+                end
+            end
+
+            % Lower pen
+            self.LowerPen();
+
+            % Add debug message if enabled
+            if self.debug == 1
+                disp('Drawing digit: 3');
+            end
+
+            % Draw digit
+            self.JogY(-self.segmentLength);
+            self.JogX(-2*self.segmentLength);
+            self.JogY(self.segmentLength);
+            self.LiftPen();
+            self.JogX(self.segmentLength);
+            self.LowerPen();
+            self.JogY(-self.segmentLength);
+
+            % Raise pen
+            self.LiftPen();
         end
 
-        function Number4(self)
-            self.SegmentF();
-            self.SegmentG();
-            self.Number1();
+        function Number4(self, digitOrigin)
+            % Raise pen if lowered
+            if self.penLifted == 0
+                self.LiftPen();
+            end
+
+            % Get current pose
+            currentPose = self.robot.model.getpos();
+            currentCartesian = self.robot.model.fkine(currentPose);
+
+            % If not close to digit origin point then move there
+            if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
+                % Move to digit origin
+                newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
+                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+
+                % Generate trajectory
+                % Uses trapezoidal trajectory to keep drawing speed mostly constant
+                trajectory = nan(self.steps,5);
+
+                s = lspb(0,1,self.steps);
+
+                for i = 1:self.steps
+                    trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
+                end
+
+                % Add debug message if enabled
+                if self.debug == 1
+                    disp('Moving to digit origin');
+                end
+
+                % Animate
+                for i = 1:size(trajectory)
+                    % Check for EStop and cease operation if engaged
+                    if self.estopFlag
+                        if self.debug == 1
+                            disp('ERROR: E-STOP ENGAGED');
+                        end
+                        return
+                    end
+                    animateStep = trajectory(i,:);
+                    self.robot.model.animate(animateStep);
+                    drawnow();
+                end
+            end
+
+            % Lower pen
+            self.LowerPen();
+
+            % Add debug message if enabled
+            if self.debug == 1
+                disp('Drawing digit: 4');
+            end
+
+            % Draw digit
+            self.JogX(-self.segmentLength);
+            self.JogY(-self.segmentLength);
+            self.LiftPen();
+            self.JogX(self.segmentLength);
+            self.LowerPen();
+            self.JogX(-2*self.segmentLength);
+
+            % Raise pen
+            self.LiftPen();
         end
 
-        function Number5(self)
-            self.SegmentA();
-            self.SegmentF();
-            self.SegmentG();
-            self.SegmentC();
-            self.SegmentD();
+        function Number5(self, digitOrigin)
+            % Raise pen if lowered
+            if self.penLifted == 0
+                self.LiftPen();
+            end
+
+            % Get current pose
+            currentPose = self.robot.model.getpos();
+            currentCartesian = self.robot.model.fkine(currentPose);
+
+            % If not close to digit origin point then move there
+            if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
+                % Move to digit origin
+                newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
+                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+
+                % Generate trajectory
+                % Uses trapezoidal trajectory to keep drawing speed mostly constant
+                trajectory = nan(self.steps,5);
+
+                s = lspb(0,1,self.steps);
+
+                for i = 1:self.steps
+                    trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
+                end
+
+                % Add debug message if enabled
+                if self.debug == 1
+                    disp('Moving to digit origin');
+                end
+
+                % Animate
+                for i = 1:size(trajectory)
+                    % Check for EStop and cease operation if engaged
+                    if self.estopFlag
+                        if self.debug == 1
+                            disp('ERROR: E-STOP ENGAGED');
+                        end
+                        return
+                    end
+                    animateStep = trajectory(i,:);
+                    self.robot.model.animate(animateStep);
+                    drawnow();
+                end
+            end
+
+            % Move one segment to the right then lower pen
+            self.JogY(-self.segmentLength)
+            self.LowerPen();
+
+            % Add debug message if enabled
+            if self.debug == 1
+                disp('Drawing digit: 5');
+            end
+
+            % Draw digit
+            self.JogY(self.segmentLength);
+            self.JogX(-self.segmentLength);
+            self.JogY(-self.segmentLength);
+            self.JogX(-self.segmentLength);
+            self.JogY(self.segmentLength);
+
+            % Raise pen
+            self.LiftPen();
         end
 
-        function Number6(self)
-            self.SegmentF();
-            self.SegmentE();
-            self.SegmentD();
-            self.SegmentG();
-            self.SegmentC();
+        function Number6(self, digitOrigin)
+            % Raise pen if lowered
+            if self.penLifted == 0
+                self.LiftPen();
+            end
+
+            % Get current pose
+            currentPose = self.robot.model.getpos();
+            currentCartesian = self.robot.model.fkine(currentPose);
+
+            % If not close to digit origin point then move there
+            if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
+                % Move to digit origin
+                newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
+                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+
+                % Generate trajectory
+                % Uses trapezoidal trajectory to keep drawing speed mostly constant
+                trajectory = nan(self.steps,5);
+
+                s = lspb(0,1,self.steps);
+
+                for i = 1:self.steps
+                    trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
+                end
+
+                % Add debug message if enabled
+                if self.debug == 1
+                    disp('Moving to digit origin');
+                end
+
+                % Animate
+                for i = 1:size(trajectory)
+                    % Check for EStop and cease operation if engaged
+                    if self.estopFlag
+                        if self.debug == 1
+                            disp('ERROR: E-STOP ENGAGED');
+                        end
+                        return
+                    end
+                    animateStep = trajectory(i,:);
+                    self.robot.model.animate(animateStep);
+                    drawnow();
+                end
+            end
+
+            % Move one segment to the right then lower pen
+            self.JogY(-self.segmentLength)
+            self.LowerPen();
+
+            % Add debug message if enabled
+            if self.debug == 1
+                disp('Drawing digit: 6');
+            end
+
+            % Draw digit
+            self.JogX(-2*self.segmentLength);
+            self.JogY(self.segmentLength);
+            self.JogX(self.segmentLength);
+            self.JogY(-self.segmentLength);
+
+            % Raise pen
+            self.LiftPen();
         end
 
-        function Number7(self)
-            self.SegmentA();
-            self.Number1();
+        function Number7(self, digitOrigin)
+            % Raise pen if lowered
+            if self.penLifted == 0
+                self.LiftPen();
+            end
+
+            % Get current pose
+            currentPose = self.robot.model.getpos();
+            currentCartesian = self.robot.model.fkine(currentPose);
+
+            % If not close to digit origin point then move there
+            if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
+                % Move to digit origin
+                newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
+                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+
+                % Generate trajectory
+                % Uses trapezoidal trajectory to keep drawing speed mostly constant
+                trajectory = nan(self.steps,5);
+
+                s = lspb(0,1,self.steps);
+
+                for i = 1:self.steps
+                    trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
+                end
+
+                % Add debug message if enabled
+                if self.debug == 1
+                    disp('Moving to digit origin');
+                end
+
+                % Animate
+                for i = 1:size(trajectory)
+                    % Check for EStop and cease operation if engaged
+                    if self.estopFlag
+                        if self.debug == 1
+                            disp('ERROR: E-STOP ENGAGED');
+                        end
+                        return
+                    end
+                    animateStep = trajectory(i,:);
+                    self.robot.model.animate(animateStep);
+                    drawnow();
+                end
+            end
+
+            % Lower pen
+            self.LowerPen();
+
+            % Add debug message if enabled
+            if self.debug == 1
+                disp('Drawing digit: 7');
+            end
+
+            % Draw digit
+            self.JogY(-self.segmentLength);
+            self.JogX(-2*self.segmentLength);
+
+            % Raise pen
+            self.LiftPen();
         end
 
-        function Number8(self)
-            self.Number0();
-            self.SegmentG();
+        function Number8(self, digitOrigin)
+            % Raise pen if lowered
+            if self.penLifted == 0
+                self.LiftPen();
+            end
+
+            % Get current pose
+            currentPose = self.robot.model.getpos();
+            currentCartesian = self.robot.model.fkine(currentPose);
+
+            % If not close to digit origin point then move there
+            if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
+                % Move to digit origin
+                newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
+                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+
+                % Generate trajectory
+                % Uses trapezoidal trajectory to keep drawing speed mostly constant
+                trajectory = nan(self.steps,5);
+
+                s = lspb(0,1,self.steps);
+
+                for i = 1:self.steps
+                    trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
+                end
+
+                % Add debug message if enabled
+                if self.debug == 1
+                    disp('Moving to digit origin');
+                end
+
+                % Animate
+                for i = 1:size(trajectory)
+                    % Check for EStop and cease operation if engaged
+                    if self.estopFlag
+                        if self.debug == 1
+                            disp('ERROR: E-STOP ENGAGED');
+                        end
+                        return
+                    end
+                    animateStep = trajectory(i,:);
+                    self.robot.model.animate(animateStep);
+                    drawnow();
+                end
+            end
+
+            % Lower pen
+            self.LowerPen();
+
+            % Add debug message if enabled
+            if self.debug == 1
+                disp('Drawing digit: 8');
+            end
+
+            % Draw digit
+            self.JogY(-self.segmentLength);
+            self.JogX(-2*self.segmentLength);
+            self.JogY(self.segmentLength);
+            self.JogX(2*self.segmentLength);
+            self.LiftPen();
+            self.JogX(-self.segmentLength);
+            self.LowerPen();
+            self.JogY(-self.segmentLength);
+
+            % Raise pen
+            self.LiftPen();
         end
 
-        function Number9(self)
-            self.SegmentA();
-            self.Number1();
-            self.SegmentF();
-            self.SegmentG();
+        function Number9(self, digitOrigin)
+            % Raise pen if lowered
+            if self.penLifted == 0
+                self.LiftPen();
+            end
+
+            % Get current pose
+            currentPose = self.robot.model.getpos();
+            currentCartesian = self.robot.model.fkine(currentPose);
+
+            % If not close to digit origin point then move there
+            if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
+                % Move to digit origin
+                newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
+                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+
+                % Generate trajectory
+                % Uses trapezoidal trajectory to keep drawing speed mostly constant
+                trajectory = nan(self.steps,5);
+
+                s = lspb(0,1,self.steps);
+
+                for i = 1:self.steps
+                    trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
+                end
+
+                % Add debug message if enabled
+                if self.debug == 1
+                    disp('Moving to digit origin');
+                end
+
+                % Animate
+                for i = 1:size(trajectory)
+                    % Check for EStop and cease operation if engaged
+                    if self.estopFlag
+                        if self.debug == 1
+                            disp('ERROR: E-STOP ENGAGED');
+                        end
+                        return
+                    end
+                    animateStep = trajectory(i,:);
+                    self.robot.model.animate(animateStep);
+                    drawnow();
+                end
+            end
+
+            % Move right and down then Lower pen
+            self.JogY(-self.segmentLength);
+            self.JogX(-self.segmentLength);
+            self.LowerPen();
+
+            % Add debug message if enabled
+            if self.debug == 1
+                disp('Drawing digit: 9');
+            end
+
+            % Draw digit
+            self.JogY(self.segmentLength);
+            self.JogX(self.segmentLength);
+            self.JogY(-self.segmentLength);
+            self.JogX(-2*self.segmentLength);
+
+            % Raise pen
+            self.LiftPen();
         end
 
         function UpdateTime(self)
@@ -826,7 +972,7 @@ classdef SeggyDs < handle
             
             % Update global variables
             self.hoursArray = hourIntermediary;
-            self.minutesArray = minuteDigits
+            self.minutesArray = minuteDigits;
         end
 
         function WriteNumber(self, number)
