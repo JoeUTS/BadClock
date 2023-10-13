@@ -1050,35 +1050,57 @@ classdef SeggyDs < handle
             canResume = ~obj.estopFlag;
         end
 
-        function WriteNumberWithSafety(self, number)
-            % Check if the light curtain is safe before moving
-            if self.lightCurtainSafe
-                % Check what the number is and write it
-                if number == 0
-                    self.Segment0();
-                elseif number == 1
-                    self.Segment1();
-                % Add cases for other numbers
+        function InitializeLightCurtain(self, size, position)
+
+            % Initialize the light curtain with custom parameters
+            self.lightCurtainPosition = position;
+            self.lightCurtainSize = size;
+    
+            % Implement collision detecting
+    
+            % Set the light curtain to the initial safe state
+            self.lightCurtainSafe = true;
+        end
+
+        function UpdateLightCurtainStatus(self, obstacleDetected)
+
+            % Check if the provided 'obstacleDetected' parameter is valid
+            if islogical(obstacleDetected)
+                if obstacleDetected
+
+                    % An obstacle has been detected in the light curtain
+                    % area (need collision detection)
+
+                    % Update the status of the light curtain to be unsafe
+                    self.lightCurtainSafe = false;
+                    % Engage the emergency stop
+                    self.engageEStop();
+                    disp('Obstacle detected in the light curtain area. Emergency Stop Engaged.');
                 else
-                    % add something to log for being out of range
+                    % No obstacle detected.
+                    self.lightCurtainSafe = true;
+                    disp('No obstacle detected in the light curtain area. Light curtain is safe.');
                 end
             else
-                % Light curtain is unsafe, stop the robot
-                self.engageEStop();
-                disp('Light curtain is unsafe. Emergency Stop Engaged.');
+                % Invalid parameter, display an error message
+                error('Invalid parameter for obstacle detection.');
             end
         end
 
-        % Add a method to update the light curtain status
-        function updateLightCurtainStatus(self, safe)
-            self.lightCurtainSafe = safe;
-            if safe
-                disp('Light curtain is now safe.');
-            else
-                % If unsafe, immediately engage emergency stop
-                self.engageEStop();
-                disp('Light curtain is now unsafe. Emergency Stop Engaged.');
-            end
+        function VisualizeLightCurtain(self)
+
+            x = [self.lightCurtainPosition(1), self.lightCurtainPosition(1) + self.lightCurtainSize(1);
+                self.lightCurtainPosition(1), self.lightCurtainPosition(1) + self.lightCurtainSize(1)];
+            y = [self.lightCurtainPosition(2), self.lightCurtainPosition(2);
+                self.lightCurtainPosition(2) + self.lightCurtainSize(2), self.lightCurtainPosition(2) + self.lightCurtainSize(2)];
+            z = [self.lightCurtainPosition(3), self.lightCurtainPosition(3) + self.lightCurtainSize(3);
+                self.lightCurtainPosition(3), self.lightCurtainPosition(3) + self.lightCurtainSize(3)];
+
+            % Create the filled plane using surf
+            surf(x, y, z, 'FaceColor', 'r', 'FaceAlpha', 0.5, 'EdgeColor', 'none');
+         
+            % Show the plot
+            drawnow;
         end
 
     end
