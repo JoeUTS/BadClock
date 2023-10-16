@@ -7,7 +7,7 @@ classdef SeggyDs < handle
         segmentLength = 0.01; % 1cm
         penOffset = 0.05;
         penRaisedOffset = 0.055;
-        steps = 25;
+        steps = 10; % THIS IS LOW FOR TESTING. MAKE ME HIGHER!!!!!
         errorTollerance = 0.005; %5mm can be lowered later 
         
         % Debug
@@ -21,20 +21,37 @@ classdef SeggyDs < handle
         originTranslation = [0.3,0,0.1]; % Set at roughly the top of the base unit
         minutesArray = [9,9]; % initialise as impossible time for bug checking
         hoursArray = [9,9]; % initialise as impossible time for bug checking
-        penLifted = 1; %
+        penRaised = 1; % Used to signal if pen is raised
+        % Used for placing the time
+        digit1Origin = [0.3,0,0.1];
+        digit2Origin = [0.3,0,0.1];
+        colonOrigin = [0.3,0,0.1];
+        digit3Origin = [0.3,0,0.1];
+        digit4Origin = [0.3,0,0.1];
+
+        % Operation Recovery
+        operationRunning = 1;
+        digit1Status = 0;
+        digit2Status = 0;
+        colonStatus = 0;
+        digit3Status = 0;
+        digit4Status = 0;
+        
 
         % Safety
         estopFlag = false; % Add an e-stop flag
+        lightCurtainSize = [0.01, 0.8, 0.4];  % Default size
+        lightCurtainPosition = [0.4, -0.4, 0];  % Default position
         lightCurtainSafe = true;
     end
 
     methods 
 		function self = SeggyDs()
             %% To do list
-            % - finish new format for drawing numbers
+            % - bugfix colon polacement in writing time
 
             %% Questions
-            % Nil
+            % - do we ask if wanting to recover when clearing E-Stop or do we just do it?
 
 			clf
 			clc
@@ -44,21 +61,17 @@ classdef SeggyDs < handle
 
             %% GUI
             % teach
-            loadPose = [0,pi/4,pi/4,pi/2,0];
-            %robot.model.plot(loadPose, 'noname', 'noarrow', 'notiles', 'nojoints');
-            self.robot.model.teach(loadPose, 'noname', 'noarrow', 'notiles', 'nojoints');
+            self.robot.model.teach('noname', 'noarrow', 'notiles', 'nojoints');
+
+            % Light curtain load in
+            self.InitializeLightCurtain(self.lightCurtainSize, self.lightCurtainPosition);
+            self.VisualizeLightCurtain();
 
             self.MoveToOrigin()
 
 			input('Press enter to begin')
-            self.Number0([0.20,0.05,0.1])
-            self.Number1([0.20,0,0.1])
-
-            %self.UpdateTime();
-
-            %display(self.hoursArray);
-            %display(self.minutesArray);
-            %WriteNumber(self, self.minutesArray(1));
+            self.operationRecovery();
+            %self.WriteTime([0.2,0.1,0.2])
 			
 		end
 	end
@@ -66,8 +79,8 @@ classdef SeggyDs < handle
     methods
         function MoveToOrigin(self)
             % Raise pen if lowered
-            if self.penLifted == 0
-                self.LiftPen();
+            if self.penRaised == 0
+                self.RaisePen();
             end
 
             % move to origin
@@ -93,6 +106,7 @@ classdef SeggyDs < handle
                 if self.estopFlag
                     if self.debug == 1
                         disp('ERROR: E-STOP ENGAGED');
+                        input('press enter to continue');
                     end
                     return
                 end
@@ -117,12 +131,13 @@ classdef SeggyDs < handle
             
         end
 
-        function LiftPen(self)
+        function RaisePen(self)
             % If pen already raised then ignore
-            if self.penLifted == 1
+            if self.penRaised == 1
                 % Add debug message if enabled
                 if self.debug == 1
                     disp('Pen already in lifted position');
+                    input('press enter to continue');
                 end
                 
                 return
@@ -158,16 +173,17 @@ classdef SeggyDs < handle
                 drawnow();
             end
 
-            self.penLifted = 1;
+            self.penRaised = 1;
 
         end
 
         function LowerPen(self)
             % If pen already raised then ignore
-            if self.penLifted == 0
+            if self.penRaised == 0
                 % Add debug message if enabled
                 if self.debug == 1
                     disp('Pen already in lowered position');
+                    input('press enter to continue');
                 end
                 
                 return
@@ -203,7 +219,7 @@ classdef SeggyDs < handle
                 drawnow();
             end
 
-            self.penLifted = 0;
+            self.penRaised = 0;
 
         end
 
@@ -246,7 +262,7 @@ classdef SeggyDs < handle
             end
 
             % Used to plot drawn lines within simulation
-            if (self.debug == 1) && (self.penLifted == 0)
+            if (self.debug == 1) && (self.penRaised == 0)
                 endPoint = self.robot.model.fkine(self.robot.model.getpos());
                 plot3([currentCartesian.t(1),endPoint.t(1)], [currentCartesian.t(2), endPoint.t(2)], [currentCartesian.t(3), endPoint.t(3)]);
             end
@@ -294,7 +310,7 @@ classdef SeggyDs < handle
             end
 
             % Used to plot drawn lines within simulation
-            if (self.debug == 1) && (self.penLifted == 0)
+            if (self.debug == 1) && (self.penRaised == 0)
                 endPoint = self.robot.model.fkine(self.robot.model.getpos());
                 plot3([currentCartesian.t(1),endPoint.t(1)], [currentCartesian.t(2), endPoint.t(2)], [currentCartesian.t(3), endPoint.t(3)]);
             end
@@ -305,8 +321,8 @@ classdef SeggyDs < handle
         
         function Number0(self, digitOrigin)
             % Raise pen if lowered
-            if self.penLifted == 0
-                self.LiftPen();
+            if self.penRaised == 0
+                self.RaisePen();
             end
 
             % Get current pose
@@ -363,13 +379,13 @@ classdef SeggyDs < handle
             self.JogX(2*self.segmentLength);
             
             % Raise pen
-            self.LiftPen();
+            self.RaisePen();
         end
 
         function Number1(self, digitOrigin)
             % Raise pen if lowered
-            if self.penLifted == 0
-                self.LiftPen();
+            if self.penRaised == 0
+                self.RaisePen();
             end
 
             % Get current pose
@@ -425,13 +441,13 @@ classdef SeggyDs < handle
             self.JogX(-2*self.segmentLength);
 
             % Raise pen
-            self.LiftPen();
+            self.RaisePen();
         end
 
         function Number2(self, digitOrigin)
             % Raise pen if lowered
-            if self.penLifted == 0
-                self.LiftPen();
+            if self.penRaised == 0
+                self.RaisePen();
             end
 
             % Get current pose
@@ -490,13 +506,13 @@ classdef SeggyDs < handle
             self.JogY(-self.segmentLength);
 
             % Raise pen
-            self.LiftPen();
+            self.RaisePen();
         end
 
         function Number3(self, digitOrigin)
             % Raise pen if lowered
-            if self.penLifted == 0
-                self.LiftPen();
+            if self.penRaised == 0
+                self.RaisePen();
             end
 
             % Get current pose
@@ -551,19 +567,19 @@ classdef SeggyDs < handle
             self.JogY(-self.segmentLength);
             self.JogX(-2*self.segmentLength);
             self.JogY(self.segmentLength);
-            self.LiftPen();
+            self.RaisePen();
             self.JogX(self.segmentLength);
             self.LowerPen();
             self.JogY(-self.segmentLength);
 
             % Raise pen
-            self.LiftPen();
+            self.RaisePen();
         end
 
         function Number4(self, digitOrigin)
             % Raise pen if lowered
-            if self.penLifted == 0
-                self.LiftPen();
+            if self.penRaised == 0
+                self.RaisePen();
             end
 
             % Get current pose
@@ -617,19 +633,19 @@ classdef SeggyDs < handle
             % Draw digit
             self.JogX(-self.segmentLength);
             self.JogY(-self.segmentLength);
-            self.LiftPen();
+            self.RaisePen();
             self.JogX(self.segmentLength);
             self.LowerPen();
             self.JogX(-2*self.segmentLength);
 
             % Raise pen
-            self.LiftPen();
+            self.RaisePen();
         end
 
         function Number5(self, digitOrigin)
             % Raise pen if lowered
-            if self.penLifted == 0
-                self.LiftPen();
+            if self.penRaised == 0
+                self.RaisePen();
             end
 
             % Get current pose
@@ -689,13 +705,13 @@ classdef SeggyDs < handle
             self.JogY(self.segmentLength);
 
             % Raise pen
-            self.LiftPen();
+            self.RaisePen();
         end
 
         function Number6(self, digitOrigin)
             % Raise pen if lowered
-            if self.penLifted == 0
-                self.LiftPen();
+            if self.penRaised == 0
+                self.RaisePen();
             end
 
             % Get current pose
@@ -754,13 +770,13 @@ classdef SeggyDs < handle
             self.JogY(-self.segmentLength);
 
             % Raise pen
-            self.LiftPen();
+            self.RaisePen();
         end
 
         function Number7(self, digitOrigin)
             % Raise pen if lowered
-            if self.penLifted == 0
-                self.LiftPen();
+            if self.penRaised == 0
+                self.RaisePen();
             end
 
             % Get current pose
@@ -816,13 +832,13 @@ classdef SeggyDs < handle
             self.JogX(-2*self.segmentLength);
 
             % Raise pen
-            self.LiftPen();
+            self.RaisePen();
         end
 
         function Number8(self, digitOrigin)
             % Raise pen if lowered
-            if self.penLifted == 0
-                self.LiftPen();
+            if self.penRaised == 0
+                self.RaisePen();
             end
 
             % Get current pose
@@ -878,19 +894,19 @@ classdef SeggyDs < handle
             self.JogX(-2*self.segmentLength);
             self.JogY(self.segmentLength);
             self.JogX(2*self.segmentLength);
-            self.LiftPen();
+            self.RaisePen();
             self.JogX(-self.segmentLength);
             self.LowerPen();
             self.JogY(-self.segmentLength);
 
             % Raise pen
-            self.LiftPen();
+            self.RaisePen();
         end
 
         function Number9(self, digitOrigin)
             % Raise pen if lowered
-            if self.penLifted == 0
-                self.LiftPen();
+            if self.penRaised == 0
+                self.RaisePen();
             end
 
             % Get current pose
@@ -950,7 +966,80 @@ classdef SeggyDs < handle
             self.JogX(-2*self.segmentLength);
 
             % Raise pen
-            self.LiftPen();
+            self.RaisePen();
+        end
+
+        function DrawColon(self, digitOrigin)
+            % Raise pen if lowered
+            if self.penRaised == 0
+                self.RaisePen();
+            end
+
+            % Get current pose
+            currentPose = self.robot.model.getpos();
+            currentCartesian = self.robot.model.fkine(currentPose);
+
+            % If not close to digit origin point then move there
+            if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
+                % Move to digit origin
+                newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
+                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+
+                % Generate trajectory
+                % Uses trapezoidal trajectory to keep drawing speed mostly constant
+                trajectory = nan(self.steps,5);
+
+                s = lspb(0,1,self.steps);
+
+                for i = 1:self.steps
+                    trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
+                end
+
+                % Add debug message if enabled
+                if self.debug == 1
+                    disp('Moving to digit origin');
+                end
+
+                % Animate
+                for i = 1:size(trajectory)
+                    % Check for EStop and cease operation if engaged
+                    if self.estopFlag
+                        if self.debug == 1
+                            disp('ERROR: E-STOP ENGAGED');
+                        end
+                        return
+                    end
+                    animateStep = trajectory(i,:);
+                    self.robot.model.animate(animateStep);
+                    drawnow();
+                end
+            end
+
+            % Move right and down then Lower pen
+            self.JogY(-self.segmentLength/3);
+            self.JogX(-self.segmentLength/3);
+            self.LowerPen();
+
+            % Add debug message if enabled
+            if self.debug == 1
+                disp('Drawing digit: 9');
+            end
+
+            % Draw digit
+            self.JogY(-self.segmentLength/3);
+            self.JogX(-self.segmentLength/3);
+            self.JogY(self.segmentLength/3);
+            self.JogX(self.segmentLength/3);
+            self.RaisePen();
+            self.JogX(-self.segmentLength/2);
+            self.LowerPen();
+            self.JogY(-self.segmentLength/3);
+            self.JogX(-self.segmentLength/3);
+            self.JogY(self.segmentLength/3);
+            self.JogX(self.segmentLength/3);
+
+            % Raise pen
+            self.RaisePen();
         end
 
         function UpdateTime(self)
@@ -975,57 +1064,119 @@ classdef SeggyDs < handle
             self.minutesArray = minuteDigits;
         end
 
-        function WriteNumber(self, number)
+        function WriteNumber(self, number, location)
             % Check what the number is and write it
             if number == 0
-                self.Number0;
+                self.Number0(location);
             elseif number == 1
-                self.Number1;
+                self.Number1(location);
             elseif number == 2
-                self.Number2;
+                self.Number2(location);
             elseif number == 3
-                self.Number3;
+                self.Number3(location);
             elseif number == 4
-                self.Number4;
+                self.Number4(location);
             elseif number == 5
-                self.Number5;
+                self.Number5(location);
             elseif number == 6
-                self.Number6;
+                self.Number6(location);
             elseif number == 7
-                self.Number7;
+                self.Number7(location);
             elseif number == 8
-                self.Number8;
+                self.Number8(location);
             elseif number == 9
-                self.Number9;
+                self.Number9(location);
             else
                 % add something to log for being out of range
             end
         end
 
-        function WriteTime(self, XYZ)
-            % Set origin to XYZ
-            % DO THE CODE
+        function WriteTime(self, timeOrigin)
+            % Set recovery flags
+            self.operationRunning = 1;
+            self.digit1Status = 0;
+            self.digit2Status = 0;
+            self.digit3Status = 0;
+            self.digit4Status = 0;
+            self.colonStatus = 0;
 
-            % Get new time, move to origin and write digit 1
+            % Set digit origins
+            self.digit1Origin = timeOrigin;
+            self.digit2Origin = self.digit1Origin - [0, (1.5*self.segmentLength), 0];
+            self.colonOrigin = self.digit2Origin - [0, (1.5*self.segmentLength), 0];
+            self.digit3Origin = self.colonOrigin - [0, (1.5*self.segmentLength), 0];
+            self.digit4Origin = self.digit3Origin - [0, (1.5*self.segmentLength), 0];
+
+            % Get new time, move to origin and write time
             self.UpdateTime();
             self.MoveToOrigin();
-            self.WriteNumber(self, self.hoursArray(1));
+            %self.WriteNumber(self.hoursArray(1), self.digit1Origin);
+            self.WriteNumber(1, self.digit1Origin);
+            self.digit1Status = 1;
+            %self.WriteNumber(self.hoursArray(2), self.digit2Origin);
+            self.WriteNumber(2, self.digit2Origin);
+            self.digit2Status = 1;
+            self.DrawColon(self.colonOrigin);
+            self.colonStatus = 1;
+            %self.WriteNumber(self.minutesArray(1), self.digit3Origin);
+            self.WriteNumber(3, self.digit3Origin);
+            self.digit3Status = 1;
+            %self.WriteNumber(self.minutesArray(2), self.digit4Origin);
+            self.WriteNumber(4, self.digit4Origin);
+            self.digit4Status = 1;
 
-            % Move origin to next digit
-            % DO THE CODE
-            self.WriteNumber(self, self.hoursArray(2));
+            % Clear flag to signal operation complete
+            self.operationRunning = 0;
+        end
 
-            % Dots in the middle (:) <-- that thing
-            % move the origin here
-            % DO THE CODE
+        function operationRecovery(self)
+            % make the program continue after E-Stop
 
-            % Move origin to next digit
-            % DO THE CODE
-            self.WriteNumber(self, self.minutesArray(1));
+            % Check if program running and cease function if not
+            if self.operationRunning == 0
+                return
+            end
 
-            % Move origin to next digit
-            % DO THE CODE
-            self.WriteNumber(self, self.minutesArray(2));
+            % ask if wanting to recover?
+
+            % Add debug message if enabled
+            if self.debug == 1
+                disp('Resuming operation');
+            end
+
+            % write each digit sequencially which lacks a completion flag
+            self.MoveToOrigin();
+
+            if self.digit1Status == 0
+                % resume digit 1
+                self.WriteNumber(self.hoursArray(1), self.digit1Origin);
+                self.digit1Status = 1;
+            end
+                
+            if self.digit2Status == 0
+                % resume digit 2
+                self.WriteNumber(self.hoursArray(2), self.digit2Origin);
+                self.digit2Status = 1;
+            end
+                
+            if self.colonStatus == 0
+                % resume colon
+                self.DrawColon(self.colonOrigin);
+                self.colonStatus = 1;
+            end
+
+            if self.digit3Status == 0
+                % resume digit 3
+                self.WriteNumber(self.minutesArray(1), self.digit3Origin);
+                self.digit3Status = 1;
+            end
+
+            if self.digit4Status == 0
+                % resume form digit 4
+                self.WriteNumber(self.minutesArray(2), self.digit4Origin);
+                self.digit4Status = 1;
+            end
+            self.operationRunning = 0;
         end
         
         function engageEStop(obj)
@@ -1048,6 +1199,7 @@ classdef SeggyDs < handle
 
         function canResume = canResumeOperations(obj)
             canResume = ~obj.estopFlag;
+            self.operationRecovery();
         end
 
         function InitializeLightCurtain(self, size, position)
@@ -1105,4 +1257,3 @@ classdef SeggyDs < handle
 
     end
 end
-
