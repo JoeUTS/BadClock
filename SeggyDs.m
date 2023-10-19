@@ -8,14 +8,20 @@ classdef SeggyDs < handle
         penOffset = 0.05;
         penRaisedOffset = 0.055;
         steps = 10; % THIS IS LOW FOR TESTING. MAKE ME HIGHER!!!!!
-        errorTollerance = 0.005; %5mm can be lowered later 
+        errorTollerance = 0.005; %5mm can be lowered later
+
+        % Poses
+        robot1ReadyPose = [-90, 5, 85, 50, 0];
+        robot2ReadyPose = [45, -90, 90, -90, -90, 0];
         
         % Debug
         debug = 1; % This is to display drawn lines in the simulation
     end
 
     properties
-        robot;
+        % Robots
+        robot1;
+        robot2;
 
         % Drawing
         originTranslation = [0.3,0,0.1]; % Set at roughly the top of the base unit
@@ -30,7 +36,7 @@ classdef SeggyDs < handle
         digit4Origin = [0.3,0,0.1];
 
         % Operation Recovery
-        operationRunning = 1;
+        operationRunning = 0;
         digit1Status = 0;
         digit2Status = 0;
         colonStatus = 0;
@@ -40,37 +46,56 @@ classdef SeggyDs < handle
 
         % Safety
         estopFlag = false; % Add an e-stop flag
-        lightCurtainSize = [0.01, 0.8, 0.4];  % Default size
-        lightCurtainPosition = [0.4, -0.4, 0];  % Default position
+        % lightCurtainSize = [0.01, 0.8, 0.4];  % Default size
+        % lightCurtainPosition = [-0.5, -0.5, 0];  % Default position
         lightCurtainSafe = true;
     end
 
     methods 
 		function self = SeggyDs()
             %% To do list
+            % - Add option to not recover on recovery
+            % - Move lightscreen to front of bay
+            % - change UR3 to CR16
+            % - Add second arm movement
+            % - Make demonstrations
+                % - functioning
+                % - collision detection
+                % - light screen trip
             % - bugfix colon polacement in writing time
+            % - camera simulation function to set origin
+            % - convert movement functions to incoperate dampened least square and/or resolved motion rate control
 
             %% Questions
-            % - do we ask if wanting to recover when clearing E-Stop or do we just do it?
 
 			clf
 			clc
-            % Load robot
-            self.robot = DobotMagician(transl(0,0,0));
+            axis([-1 2.25 -1 1 -0.5 2])
             hold on
 
-            %% GUI
-            % teach
-            self.robot.model.teach('noname', 'noarrow', 'notiles', 'nojoints');
+            % Main robot (Dobot Magician)
+            % NOTE: Base turned off in RobotBaseClass.InitiliseRobotPlot() function.
+            %       Add 'notiles' to plot3D in function to hide.
+            self.robot1 = DobotMagician(transl(0,0,0));
+            self.robot1.model.teach('noname', 'noarrow', 'notiles', 'nojoints');
+            robot1ReadyPose = deg2rad(self.robot1ReadyPose);
+            self.robot1.model.animate(robot1ReadyPose);
+
+            % Secondary robot (will be CR16 but is UR3 until CR16 is ready)
+            self.robot2 = UR3(transl(0.5,0,0));
+            robot2ReadyPose = deg2rad(self.robot2ReadyPose);
+            self.robot2.model.animate(robot2ReadyPose);
+
+            self.enviroment();
 
             % Light curtain load in
             self.InitializeLightCurtain(self.lightCurtainSize, self.lightCurtainPosition);
             self.VisualizeLightCurtain();
 
-            self.MoveToOrigin()
+            %self.MoveToOrigin()
 
-			input('Press enter to begin')
-            self.operationRecovery();
+			%input('Press enter to begin')
+            %self.operationRecovery();
             %self.WriteTime([0.2,0.1,0.2])
 			
 		end
@@ -85,12 +110,12 @@ classdef SeggyDs < handle
 
             % move to origin
             % get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);
+            currentPose = self.robot1.model.getpos();
+            currentCartesian = self.robot1.model.fkine(currentPose);
                         
             % move to origin
             newCartesian = transl(self.originTranslation + [0,0,self.penRaisedOffset]);   % Nil rotation data entered seems to work the same as rotx90 deg. why?
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
                         
             % Generate trajectory
             trajectory = jtraj(currentPose, newPose, self.steps);
@@ -111,7 +136,7 @@ classdef SeggyDs < handle
                     return
                 end
                 animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
+                self.robot1.model.animate(animateStep);
                 drawnow();
             end
 
@@ -119,7 +144,7 @@ classdef SeggyDs < handle
             % Log currentCartesian
             % INSERT CODE HERE
             % Log actualTransform
-            actualTransform = self.robot.model.fkine(self.robot.model.getpos());
+            actualTransform = self.robot1.model.fkine(self.robot1.model.getpos());
             % INSERT LOG CODE
             % Calculate delta
             errorTransform = actualTransform.t' - currentCartesian.t';
@@ -144,12 +169,12 @@ classdef SeggyDs < handle
             end
 
             % Get current position
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);
+            currentPose = self.robot1.model.getpos();
+            currentCartesian = self.robot1.model.fkine(currentPose);
 
              % Lift Pen
             newCartesian = transl([currentCartesian.t(1), currentCartesian.t(2), (self.originTranslation(3) + self.penRaisedOffset)]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
             
             % Generate trajectory
             trajectory = jtraj(currentPose, newPose, self.steps);
@@ -169,7 +194,7 @@ classdef SeggyDs < handle
                     return
                 end
                 animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
+                self.robot1.model.animate(animateStep);
                 drawnow();
             end
 
@@ -190,12 +215,12 @@ classdef SeggyDs < handle
             end
 
             % Get current position
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);
+            currentPose = self.robot1.model.getpos();
+            currentCartesian = self.robot1.model.fkine(currentPose);
 
              % Lift Pen
             newCartesian = transl([currentCartesian.t(1), currentCartesian.t(2), (self.originTranslation(3) + self.penOffset)]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
             
             % Generate trajectory
             trajectory = jtraj(currentPose, newPose, self.steps);
@@ -215,7 +240,7 @@ classdef SeggyDs < handle
                     return
                 end
                 animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
+                self.robot1.model.animate(animateStep);
                 drawnow();
             end
 
@@ -225,12 +250,12 @@ classdef SeggyDs < handle
 
         function JogX(self, distance)
             % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);
+            currentPose = self.robot1.model.getpos();
+            currentCartesian = self.robot1.model.fkine(currentPose);
 
             % Move one segment to the right
             newCartesian = transl(currentCartesian.t' + [distance, 0, 0]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
             
             % Generate trajectory
             % Uses trapezoidal trajectory to keep drawing speed mostly constant
@@ -257,13 +282,13 @@ classdef SeggyDs < handle
                     return
                 end
                 animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
+                self.robot1.model.animate(animateStep);
                 drawnow();
             end
 
             % Used to plot drawn lines within simulation
             if (self.debug == 1) && (self.penRaised == 0)
-                endPoint = self.robot.model.fkine(self.robot.model.getpos());
+                endPoint = self.robot1.model.fkine(self.robot1.model.getpos());
                 plot3([currentCartesian.t(1),endPoint.t(1)], [currentCartesian.t(2), endPoint.t(2)], [currentCartesian.t(3), endPoint.t(3)]);
             end
 
@@ -273,12 +298,12 @@ classdef SeggyDs < handle
 
         function JogY(self, distance)
             % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);  % is this needed?
+            currentPose = self.robot1.model.getpos();
+            currentCartesian = self.robot1.model.fkine(currentPose);  % is this needed?
 
             % Move one segment to the right
             newCartesian = transl(currentCartesian.t' + [0, distance, 0]);
-            newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
             
             % Generate trajectory
             % Uses trapezoidal trajectory to keep drawing speed mostly constant
@@ -305,13 +330,13 @@ classdef SeggyDs < handle
                     return
                 end
                 animateStep = trajectory(i,:);
-                self.robot.model.animate(animateStep);
+                self.robot1.model.animate(animateStep);
                 drawnow();
             end
 
             % Used to plot drawn lines within simulation
             if (self.debug == 1) && (self.penRaised == 0)
-                endPoint = self.robot.model.fkine(self.robot.model.getpos());
+                endPoint = self.robot1.model.fkine(self.robot1.model.getpos());
                 plot3([currentCartesian.t(1),endPoint.t(1)], [currentCartesian.t(2), endPoint.t(2)], [currentCartesian.t(3), endPoint.t(3)]);
             end
 
@@ -326,14 +351,14 @@ classdef SeggyDs < handle
             end
 
             % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);
+            currentPose = self.robot1.model.getpos();
+            currentCartesian = self.robot1.model.fkine(currentPose);
             
             % If not close to digit origin point then move there
             if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
                 % Move to digit origin
                 newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
-                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+                newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
 
                 % Generate trajectory
                 % Uses trapezoidal trajectory to keep drawing speed mostly constant
@@ -359,7 +384,7 @@ classdef SeggyDs < handle
                         return
                     end
                     animateStep = trajectory(i,:);
-                    self.robot.model.animate(animateStep);
+                    self.robot1.model.animate(animateStep);
                     drawnow();
                 end
             end
@@ -389,14 +414,14 @@ classdef SeggyDs < handle
             end
 
             % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);
+            currentPose = self.robot1.model.getpos();
+            currentCartesian = self.robot1.model.fkine(currentPose);
 
             % If not close to digit origin point then move there
             if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
                 % Move to digit origin
                 newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
-                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+                newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
 
                 % Generate trajectory
                 % Uses trapezoidal trajectory to keep drawing speed mostly constant
@@ -423,7 +448,7 @@ classdef SeggyDs < handle
                         return
                     end
                     animateStep = trajectory(i,:);
-                    self.robot.model.animate(animateStep);
+                    self.robot1.model.animate(animateStep);
                     drawnow();
                 end
             end
@@ -451,14 +476,14 @@ classdef SeggyDs < handle
             end
 
             % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);
+            currentPose = self.robot1.model.getpos();
+            currentCartesian = self.robot1.model.fkine(currentPose);
 
             % If not close to digit origin point then move there
             if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
                 % Move to digit origin
                 newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
-                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+                newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
 
                 % Generate trajectory
                 % Uses trapezoidal trajectory to keep drawing speed mostly constant
@@ -485,7 +510,7 @@ classdef SeggyDs < handle
                         return
                     end
                     animateStep = trajectory(i,:);
-                    self.robot.model.animate(animateStep);
+                    self.robot1.model.animate(animateStep);
                     drawnow();
                 end
             end
@@ -516,14 +541,14 @@ classdef SeggyDs < handle
             end
 
             % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);
+            currentPose = self.robot1.model.getpos();
+            currentCartesian = self.robot1.model.fkine(currentPose);
 
             % If not close to digit origin point then move there
             if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
                 % Move to digit origin
                 newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
-                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+                newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
 
                 % Generate trajectory
                 % Uses trapezoidal trajectory to keep drawing speed mostly constant
@@ -550,7 +575,7 @@ classdef SeggyDs < handle
                         return
                     end
                     animateStep = trajectory(i,:);
-                    self.robot.model.animate(animateStep);
+                    self.robot1.model.animate(animateStep);
                     drawnow();
                 end
             end
@@ -583,14 +608,14 @@ classdef SeggyDs < handle
             end
 
             % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);
+            currentPose = self.robot1.model.getpos();
+            currentCartesian = self.robot1.model.fkine(currentPose);
 
             % If not close to digit origin point then move there
             if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
                 % Move to digit origin
                 newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
-                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+                newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
 
                 % Generate trajectory
                 % Uses trapezoidal trajectory to keep drawing speed mostly constant
@@ -617,7 +642,7 @@ classdef SeggyDs < handle
                         return
                     end
                     animateStep = trajectory(i,:);
-                    self.robot.model.animate(animateStep);
+                    self.robot1.model.animate(animateStep);
                     drawnow();
                 end
             end
@@ -649,14 +674,14 @@ classdef SeggyDs < handle
             end
 
             % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);
+            currentPose = self.robot1.model.getpos();
+            currentCartesian = self.robot1.model.fkine(currentPose);
 
             % If not close to digit origin point then move there
             if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
                 % Move to digit origin
                 newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
-                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+                newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
 
                 % Generate trajectory
                 % Uses trapezoidal trajectory to keep drawing speed mostly constant
@@ -683,7 +708,7 @@ classdef SeggyDs < handle
                         return
                     end
                     animateStep = trajectory(i,:);
-                    self.robot.model.animate(animateStep);
+                    self.robot1.model.animate(animateStep);
                     drawnow();
                 end
             end
@@ -715,14 +740,14 @@ classdef SeggyDs < handle
             end
 
             % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);
+            currentPose = self.robot1.model.getpos();
+            currentCartesian = self.robot1.model.fkine(currentPose);
 
             % If not close to digit origin point then move there
             if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
                 % Move to digit origin
                 newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
-                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+                newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
 
                 % Generate trajectory
                 % Uses trapezoidal trajectory to keep drawing speed mostly constant
@@ -749,7 +774,7 @@ classdef SeggyDs < handle
                         return
                     end
                     animateStep = trajectory(i,:);
-                    self.robot.model.animate(animateStep);
+                    self.robot1.model.animate(animateStep);
                     drawnow();
                 end
             end
@@ -780,14 +805,14 @@ classdef SeggyDs < handle
             end
 
             % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);
+            currentPose = self.robot1.model.getpos();
+            currentCartesian = self.robot1.model.fkine(currentPose);
 
             % If not close to digit origin point then move there
             if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
                 % Move to digit origin
                 newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
-                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+                newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
 
                 % Generate trajectory
                 % Uses trapezoidal trajectory to keep drawing speed mostly constant
@@ -814,7 +839,7 @@ classdef SeggyDs < handle
                         return
                     end
                     animateStep = trajectory(i,:);
-                    self.robot.model.animate(animateStep);
+                    self.robot1.model.animate(animateStep);
                     drawnow();
                 end
             end
@@ -842,14 +867,14 @@ classdef SeggyDs < handle
             end
 
             % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);
+            currentPose = self.robot1.model.getpos();
+            currentCartesian = self.robot1.model.fkine(currentPose);
 
             % If not close to digit origin point then move there
             if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
                 % Move to digit origin
                 newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
-                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+                newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
 
                 % Generate trajectory
                 % Uses trapezoidal trajectory to keep drawing speed mostly constant
@@ -876,7 +901,7 @@ classdef SeggyDs < handle
                         return
                     end
                     animateStep = trajectory(i,:);
-                    self.robot.model.animate(animateStep);
+                    self.robot1.model.animate(animateStep);
                     drawnow();
                 end
             end
@@ -910,14 +935,14 @@ classdef SeggyDs < handle
             end
 
             % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);
+            currentPose = self.robot1.model.getpos();
+            currentCartesian = self.robot1.model.fkine(currentPose);
 
             % If not close to digit origin point then move there
             if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
                 % Move to digit origin
                 newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
-                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+                newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
 
                 % Generate trajectory
                 % Uses trapezoidal trajectory to keep drawing speed mostly constant
@@ -944,7 +969,7 @@ classdef SeggyDs < handle
                         return
                     end
                     animateStep = trajectory(i,:);
-                    self.robot.model.animate(animateStep);
+                    self.robot1.model.animate(animateStep);
                     drawnow();
                 end
             end
@@ -976,14 +1001,14 @@ classdef SeggyDs < handle
             end
 
             % Get current pose
-            currentPose = self.robot.model.getpos();
-            currentCartesian = self.robot.model.fkine(currentPose);
+            currentPose = self.robot1.model.getpos();
+            currentCartesian = self.robot1.model.fkine(currentPose);
 
             % If not close to digit origin point then move there
             if (abs(currentCartesian.t(1)) - abs(digitOrigin(1)) > self.errorTollerance) || (abs(currentCartesian.t(2)) - abs(digitOrigin(2)) > self.errorTollerance)
                 % Move to digit origin
                 newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]);
-                newPose = self.robot.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
+                newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 1 1 0], 'forceSoln');
 
                 % Generate trajectory
                 % Uses trapezoidal trajectory to keep drawing speed mostly constant
@@ -1010,7 +1035,7 @@ classdef SeggyDs < handle
                         return
                     end
                     animateStep = trajectory(i,:);
-                    self.robot.model.animate(animateStep);
+                    self.robot1.model.animate(animateStep);
                     drawnow();
                 end
             end
@@ -1178,6 +1203,76 @@ classdef SeggyDs < handle
             end
             self.operationRunning = 0;
         end
+
+        function enviroment(self)
+            %% Load in and position objects
+            % Box (This reporesents the box to be writen on)
+            objectBox = PlaceObject('brick.ply',[0,0,0]);
+            verts = [get(objectBox,'Vertices'), ones(size(get(objectBox,'Vertices'),1),1)] * trotz(pi/2) * trotx(pi);
+            verts(:,:) = verts(:,:);
+            set(objectBox,'Vertices',verts(:,1:3));
+            TransformMesh(objectBox, transl([0.25,-0.5,0.025]));
+
+            % Table
+            objectTable = PlaceObject('tableBrown2.1x1.4x0.5m.ply',[0.75,0,-0.5]);
+
+            % Printer (Represents PC)
+            objectPrinter = PlaceObject('printer.ply',[1,-0.5,0]);
+
+            % Chair
+            objectchair = PlaceObject('chair.ply',[0,0,0]);
+            verts = [get(objectchair,'Vertices'), ones(size(get(objectchair,'Vertices'),1),1)] * trotx(-pi/2) * trotz(pi);
+            verts(:,:) = verts(:,:);
+            set(objectchair,'Vertices',verts(:,1:3));
+            TransformMesh(objectchair, transl([1,-0.75, -0.35]));
+
+            % E-Stop
+            objecEmergencyButton = PlaceObject('emergencyStopButton.ply',[0,0,0]);
+            verts = [get(objecEmergencyButton,'Vertices'), ones(size(get(objecEmergencyButton,'Vertices'),1),1)] * trotz(pi/2);
+            verts(:,:) = verts(:,:) * 0.5;
+            set(objecEmergencyButton,'Vertices',verts(:,1:3));
+            TransformMesh(objecEmergencyButton, transl([0.7,-0.6,0.1]));
+
+            % Fire Extinguisher
+            objecFireExtinguisher = PlaceObject('fireExtinguisher.ply',[-0.5,-0.5,-0.5]);
+
+            % Barriers
+            objectbarrier1 = PlaceObject('barrier1.5x0.2x1m.ply',[0,0,0]);
+            verts = [get(objectbarrier1,'Vertices'), ones(size(get(objectbarrier1,'Vertices'),1),1)] * trotz(pi/2);
+            verts(:,:) = verts(:,:) / 3;
+            set(objectbarrier1,'Vertices',verts(:,1:3));
+            TransformMesh(objectbarrier1, transl([-0.25,-0.25,0.15]));
+
+            objectbarrier2 = PlaceObject('barrier1.5x0.2x1m.ply',[0,0,0]);
+            verts = [get(objectbarrier2,'Vertices'), ones(size(get(objectbarrier2,'Vertices'),1),1)] * trotz(pi/2);
+            verts(:,:) = verts(:,:) / 3;
+            set(objectbarrier2,'Vertices',verts(:,1:3));
+            TransformMesh(objectbarrier2, transl([-0.25,0.25,0.15]));
+
+            objectbarrier3 = PlaceObject('barrier1.5x0.2x1m.ply',[0,0,0]);
+            verts = [get(objectbarrier3,'Vertices'), ones(size(get(objectbarrier3,'Vertices'),1),1)] * trotz(pi/2);
+            verts(:,:) = verts(:,:) / 3;
+            set(objectbarrier3,'Vertices',verts(:,1:3));
+            TransformMesh(objectbarrier3, transl([0.75,0.25,0.15]));
+
+            objectbarrier4 = PlaceObject('barrier1.5x0.2x1m.ply',[0,0,0]);
+            verts = [get(objectbarrier4,'Vertices'), ones(size(get(objectbarrier4,'Vertices'),1),1)] * trotz(pi/2);
+            verts(:,:) = verts(:,:) / 3;
+            set(objectbarrier4,'Vertices',verts(:,1:3));
+            TransformMesh(objectbarrier4, transl([0.75,-0.25,0.15]));
+
+            objectbarrier5 = PlaceObject('barrier1.5x0.2x1m.ply',[0,0,0]);
+            verts = [get(objectbarrier5,'Vertices'), ones(size(get(objectbarrier5,'Vertices'),1),1)];
+            verts(:,:) = verts(:,:) / 3;
+            set(objectbarrier5,'Vertices',verts(:,1:3));
+            TransformMesh(objectbarrier5, transl([0,0.5,0.15]));
+
+            objectbarrier6 = PlaceObject('barrier1.5x0.2x1m.ply',[0,0,0]);
+            verts = [get(objectbarrier6,'Vertices'), ones(size(get(objectbarrier6,'Vertices'),1),1)];
+            verts(:,:) = verts(:,:) / 3;
+            set(objectbarrier6,'Vertices',verts(:,1:3));
+            TransformMesh(objectbarrier6, transl([0.5,0.5,0.15]));
+        end
         
         function engageEStop(obj)
             if ~obj.estopFlag
@@ -1257,3 +1352,4 @@ classdef SeggyDs < handle
 
     end
 end
+
