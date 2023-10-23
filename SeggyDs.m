@@ -43,7 +43,7 @@ classdef SeggyDs < handle
         digit4Origin = [0.3,0,0.1];
 
         % Operation Recovery
-        operationRunning = 1;
+        operationRunning = 0;
         digit1Status = 0;
         digit2Status = 0;
         colonStatus = 0;
@@ -53,23 +53,22 @@ classdef SeggyDs < handle
 
         % Safety
         estopFlag = false; % Add an e-stop flag
-        lightCurtainSize = [0.01, 0.8, 0.4];  % Default size
-        lightCurtainPosition = [-0.5, -0.5, 0];  % Default position
+        lightCurtainSize = [0.5, 0.01, 0.4];  % Default size
+        lightCurtainPosition = [0.25, -0.5, 0];  % Default position
         lightCurtainSafe = true;
     end
 
     methods 
 		function self = SeggyDs()
             %% To do list
-            % - Move lightscreen to front of bay
-            % - change UR3 to CR16
             % - camera simulation function to set origin
             % - convert movement functions to incoperate dampened least square and/or resolved motion rate control
 
-			clf
-			clc
-            axis([-1 2.25 -1 1 -0.5 2])
-            hold on
+			clf;
+			clc;
+            axis([-1 2.25 -1 1 -0.5 2]);
+            view(45,45);
+            hold on;
 
             % Main robot (Dobot Magician)
             % NOTE: Base turned off in RobotBaseClass.InitiliseRobotPlot() function.
@@ -79,8 +78,8 @@ classdef SeggyDs < handle
             robot1ReadyPose = deg2rad(self.robot1ReadyPose);
             self.robot1.model.animate(robot1ReadyPose);
 
-            % Secondary robot (will be CR16 but is UR3 until CR16 is ready)
-            self.robot2 = UR3(transl(0.5,0.2,0));
+            % Secondary robot (Dobot CR16)
+            self.robot2 = DobotCR16(transl(0.9,0.2,0));
             robot2ReadyPose = deg2rad(self.robot2ReadyPose);
             self.robot2.model.animate(robot2ReadyPose);
 
@@ -92,7 +91,7 @@ classdef SeggyDs < handle
             
             % Deliverables
             input('Press enter to begin')
-            %self.OperationRun();
+            self.OperationRun();
             %self.ColisionSimulation();
             %self.LightScreenTripSimulation();
             %self.operationRecovery();
@@ -1175,61 +1174,79 @@ classdef SeggyDs < handle
             objectTable = PlaceObject('tableBrown2.1x1.4x0.5m.ply',[0.75,0,-0.5]);
 
             % Printer (Represents PC)
-            objectPrinter = PlaceObject('printer.ply',[1,-0.5,0]);
+            objectPrinter = PlaceObject('printer.ply',[1.5,-0.5,0]);
 
             % Chair
             objectchair = PlaceObject('chair.ply',[0,0,0]);
             verts = [get(objectchair,'Vertices'), ones(size(get(objectchair,'Vertices'),1),1)] * trotx(-pi/2) * trotz(pi);
             verts(:,:) = verts(:,:);
             set(objectchair,'Vertices',verts(:,1:3));
-            TransformMesh(objectchair, transl([1,-0.75, -0.35]));
+            TransformMesh(objectchair, transl([1.5,-0.75, -0.35]));
 
             % E-Stop
             objecEmergencyButton = PlaceObject('emergencyStopButton.ply',[0,0,0]);
             verts = [get(objecEmergencyButton,'Vertices'), ones(size(get(objecEmergencyButton,'Vertices'),1),1)] * trotz(pi/2);
-            verts(:,:) = verts(:,:) * 0.5;
+            verts(:,:) = verts(:,:) * 0.25;
             set(objecEmergencyButton,'Vertices',verts(:,1:3));
-            TransformMesh(objecEmergencyButton, transl([0.7,-0.6,0.1]));
+            TransformMesh(objecEmergencyButton, transl([1.75,-0.6,0.05]));
 
             % Fire Extinguisher
-            objecFireExtinguisher = PlaceObject('fireExtinguisher.ply',[-0.5,-0.5,-0.5]);
+            objecFireExtinguisher = PlaceObject('fireExtinguisher.ply',[2,-0.5,-0.5]);
 
             % Barriers
             objectbarrier1 = PlaceObject('barrier1.5x0.2x1m.ply',[0,0,0]);
-            verts = [get(objectbarrier1,'Vertices'), ones(size(get(objectbarrier1,'Vertices'),1),1)] * trotz(pi/2);
+            verts = [get(objectbarrier1,'Vertices'), ones(size(get(objectbarrier1,'Vertices'),1),1)] * trotz(-pi/2);
             verts(:,:) = verts(:,:) / 3;
             set(objectbarrier1,'Vertices',verts(:,1:3));
             TransformMesh(objectbarrier1, transl([-0.25,-0.25,0.15]));
 
             objectbarrier2 = PlaceObject('barrier1.5x0.2x1m.ply',[0,0,0]);
-            verts = [get(objectbarrier2,'Vertices'), ones(size(get(objectbarrier2,'Vertices'),1),1)] * trotz(pi/2);
+            verts = [get(objectbarrier2,'Vertices'), ones(size(get(objectbarrier2,'Vertices'),1),1)] * trotz(-pi/2);
             verts(:,:) = verts(:,:) / 3;
             set(objectbarrier2,'Vertices',verts(:,1:3));
             TransformMesh(objectbarrier2, transl([-0.25,0.25,0.15]));
 
             objectbarrier3 = PlaceObject('barrier1.5x0.2x1m.ply',[0,0,0]);
-            verts = [get(objectbarrier3,'Vertices'), ones(size(get(objectbarrier3,'Vertices'),1),1)] * trotz(pi/2);
+            verts = [get(objectbarrier3,'Vertices'), ones(size(get(objectbarrier3,'Vertices'),1),1)];
             verts(:,:) = verts(:,:) / 3;
             set(objectbarrier3,'Vertices',verts(:,1:3));
-            TransformMesh(objectbarrier3, transl([0.75,0.25,0.15]));
+            TransformMesh(objectbarrier3, transl([0,0.5,0.15]));
 
             objectbarrier4 = PlaceObject('barrier1.5x0.2x1m.ply',[0,0,0]);
-            verts = [get(objectbarrier4,'Vertices'), ones(size(get(objectbarrier4,'Vertices'),1),1)] * trotz(pi/2);
+            verts = [get(objectbarrier4,'Vertices'), ones(size(get(objectbarrier4,'Vertices'),1),1)];
             verts(:,:) = verts(:,:) / 3;
             set(objectbarrier4,'Vertices',verts(:,1:3));
-            TransformMesh(objectbarrier4, transl([0.75,-0.25,0.15]));
+            TransformMesh(objectbarrier4, transl([0.5,0.5,0.15]));
 
             objectbarrier5 = PlaceObject('barrier1.5x0.2x1m.ply',[0,0,0]);
             verts = [get(objectbarrier5,'Vertices'), ones(size(get(objectbarrier5,'Vertices'),1),1)];
             verts(:,:) = verts(:,:) / 3;
             set(objectbarrier5,'Vertices',verts(:,1:3));
-            TransformMesh(objectbarrier5, transl([0,0.5,0.15]));
+            TransformMesh(objectbarrier5, transl([1,0.5,0.15]));
 
-            objectbarrier6 = PlaceObject('barrier1.5x0.2x1m.ply',[0,0,0]);
-            verts = [get(objectbarrier6,'Vertices'), ones(size(get(objectbarrier6,'Vertices'),1),1)];
+            objectbarrier7 = PlaceObject('barrier1.5x0.2x1m.ply',[0,0,0]);
+            verts = [get(objectbarrier7,'Vertices'), ones(size(get(objectbarrier7,'Vertices'),1),1)] * trotz(pi/2);
             verts(:,:) = verts(:,:) / 3;
-            set(objectbarrier6,'Vertices',verts(:,1:3));
-            TransformMesh(objectbarrier6, transl([0.5,0.5,0.15]));
+            set(objectbarrier7,'Vertices',verts(:,1:3));
+            TransformMesh(objectbarrier7, transl([1.25,-0.25,0.15]));
+
+            objectbarrier8 = PlaceObject('barrier1.5x0.2x1m.ply',[0,0,0]);
+            verts = [get(objectbarrier8,'Vertices'), ones(size(get(objectbarrier8,'Vertices'),1),1)] * trotz(pi/2);
+            verts(:,:) = verts(:,:) / 3;
+            set(objectbarrier8,'Vertices',verts(:,1:3));
+            TransformMesh(objectbarrier8, transl([1.25,0.25,0.15]));
+
+            objectbarrier9 = PlaceObject('barrier1.5x0.2x1m.ply',[0,0,0]);
+            verts = [get(objectbarrier9,'Vertices'), ones(size(get(objectbarrier9,'Vertices'),1),1)] * trotz(pi);
+            verts(:,:) = verts(:,:) / 3;
+            set(objectbarrier9,'Vertices',verts(:,1:3));
+            TransformMesh(objectbarrier9, transl([0,-0.5,0.15]));
+
+            objectbarrier10 = PlaceObject('barrier1.5x0.2x1m.ply',[0,0,0]);
+            verts = [get(objectbarrier10,'Vertices'), ones(size(get(objectbarrier10,'Vertices'),1),1)] * trotz(pi);
+            verts(:,:) = verts(:,:) / 3;
+            set(objectbarrier10,'Vertices',verts(:,1:3));
+            TransformMesh(objectbarrier10, transl([1,-0.5,0.15]));
         end
 
         function MoveToReady(self)
@@ -1400,7 +1417,7 @@ classdef SeggyDs < handle
 
             % Move to origin
             newCartesian2 = transl([self.originTranslation(1),self.originTranslation(2),boxLocation(3) + self.robot2EndEffectorOffset]) * troty(-180, 'deg');
-            newPose2 = self.robot2.model.ikine(newCartesian2, 'q0', currentPose2, 'forceSoln', 'ilimit',1000, 'rlimit',1000, 'slimit',1000);
+            newPose2 = self.robot2.model.ikine(newCartesian2, 'q0', currentPose2, 'forceSoln');
             
             % Generate trajectory
             trajectory2 = jtraj(currentPose2, newPose2, self.steps);
@@ -1506,15 +1523,18 @@ classdef SeggyDs < handle
         function LightScreenTripSimulation(self)
 
             self.MoveToReady();
-            self.robot2.model.base = transl(0.5,0,0);
 
             % Get current pose
             currentPose1 = self.robot1.model.getpos();
             currentPose2 = self.robot2.model.getpos();
+
+            % Move to lightscreen
+            newCartesian2 = transl([0.5,-0.5,0.2]) * troty(-180, 'deg');
+            newPose2 = self.robot2.model.ikine(newCartesian2, 'q0', currentPose2, 'forceSoln');
             
             % Generate trajectory
             trajectory1 = jtraj(currentPose1, deg2rad([135, 5, 85, 50, 0]), self.steps);
-            trajectory2 = jtraj(currentPose2, deg2rad([90, 0, 0, -90, 90, 0]), self.steps);
+            trajectory2 = jtraj(currentPose2, newPose2, self.steps);
             
             % Add debug message if enabled
             if self.debug == 1
@@ -1538,7 +1558,6 @@ classdef SeggyDs < handle
                 drawnow();
             end
 
-            self.robot2.model.base = transl(0.5,0.2,0);
             self.MoveToReady();
         end
         
@@ -1608,8 +1627,8 @@ classdef SeggyDs < handle
                 self.lightCurtainPosition(1), self.lightCurtainPosition(1) + self.lightCurtainSize(1)];
             y = [self.lightCurtainPosition(2), self.lightCurtainPosition(2);
                 self.lightCurtainPosition(2) + self.lightCurtainSize(2), self.lightCurtainPosition(2) + self.lightCurtainSize(2)];
-            z = [self.lightCurtainPosition(3), self.lightCurtainPosition(3) + self.lightCurtainSize(3);
-                self.lightCurtainPosition(3), self.lightCurtainPosition(3) + self.lightCurtainSize(3)];
+            z = [self.lightCurtainPosition(3), self.lightCurtainPosition(3) ;
+                self.lightCurtainPosition(3) + self.lightCurtainSize(3), self.lightCurtainPosition(3) + self.lightCurtainSize(3)];
 
             % Create the filled plane using surf
             surf(x, y, z, 'FaceColor', 'r', 'FaceAlpha', 0.5, 'EdgeColor', 'none');
@@ -1620,4 +1639,3 @@ classdef SeggyDs < handle
 
     end
 end
-
