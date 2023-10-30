@@ -7,6 +7,7 @@ classdef SeggyDs < handle
         segmentLength = 0.01; % 1cm
         steps = 50; % THIS IS LOW FOR TESTING. MAKE ME HIGHER!!!!!
         drawingOffset = 0.055;
+        deltaT = 0.05; % Time step for RMRC
 
         % Robots
         robot2EndEffectorOffset = 0.05;
@@ -67,8 +68,8 @@ classdef SeggyDs < handle
     methods 
 		function self = SeggyDs()
             %% To do list
-            % - camera simulation function to set origin
-            % - convert movement functions to incoperate dampened least square and/or resolved motion rate control
+            % - visual servoing function to set origin
+            % - make number of steps variable based on distance
 
 			clf;
 			clc;
@@ -101,8 +102,8 @@ classdef SeggyDs < handle
             end
             
             % Deliverables
-            %input('Press enter to begin')
-            %self.OperationRun();
+            input('Press enter to begin')
+            self.OperationRun();
             %self.ColisionSimulation();
             %self.LightScreenTripSimulation();
             %self.operationRecovery();
@@ -110,9 +111,9 @@ classdef SeggyDs < handle
 	end
     
     methods
-        function MoveRobot1(self, targetCartesian, trapezoidal)
+        function MoveRobot1(self, targetCartesian, RMRC)
             if nargin < 3
-                trapezoidal = 0;
+                RMRC = 0;
             end
             % get current pose
             currentPose = self.robot1.model.getpos();
@@ -121,14 +122,60 @@ classdef SeggyDs < handle
             newPose = self.robot1.model.ikine(targetCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
                         
             % Generate trajectory
-            if trapezoidal == 0
+            if RMRC == 0
                 trajectory = jtraj(currentPose, newPose, self.steps);
             else
-                trajectory = nan(self.steps,5);
+                %% Use RMRC for drawing
+                % Set up variables
+                trajectoryCartesian = nan(6,self.steps);
                 s = lspb(0,1,self.steps);
+                Jacobian = zeros(6);
+                manipulability = zeros(self.steps, 1);
+                xdot = zeros(6,1);
+                trajectory = nan(self.steps,5);
+                threshDLS = 1*10^-10;
 
+                % Set first step as current pose
+                trajectory(1,:) = currentPose;
+
+                currentCartesian = self.robot1.model.fkine(currentPose);
+                
+                % Generate trajectory
                 for i = 1:self.steps
-                    trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
+                    % RPY not needed for this design
+                    trajectoryCartesian(4:6,i) = [0,0,0]';
+                    trajectoryCartesian(1:3,i) = (1-s(i))*currentCartesian.t + s(i)*targetCartesian(1:3,4);
+                end
+
+                for i = 1:self.steps-1
+                    % Calculate velocity of end effector
+                    xdot = (trajectoryCartesian(:,i+1) - trajectoryCartesian(:,i))/self.deltaT;
+
+                    % Get Jacobian of current pose
+                    Jacobian = self.robot1.model.jacob0(trajectory(i,:));
+
+                    % Jacobian isnt square, pseudoinverse used instead.
+                    %invJ = inv(Jacobian * Jacobian');
+                    %JPlus = Jacobian' * invJ;
+
+                    % Calculate joint velocities
+                    %qdot = JPlus * xdot;
+
+                    %% Damped Least Squares
+                    manipulability(i) = sqrt(det(Jacobian*Jacobian'));
+                    
+                    if manipulability(i) < threshDLS
+                        lambda = (1 - (manipulability(i)/threshDLS)^2)*10^-5;
+                    else
+                        lambda = 0;
+                    end
+
+                    % Using pseudoinverse as Jacobian isnt square
+                    invJ = Jacobian' * inv((Jacobian*Jacobian') + (lambda * eye(6)));
+                    qdot = invJ * xdot;
+
+                    % Update qMatrix
+                    trajectory(i+1,:) =  trajectory(i,:) + self.deltaT * qdot';
                 end
             end
 
@@ -152,12 +199,13 @@ classdef SeggyDs < handle
             currentPose = self.robot2.model.getpos();
                         
             % Find new pose
-            newPose = self.robot2.model.ikine(targetCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
+            newPose = self.robot2.model.ikine(targetCartesian, 'q0', currentPose, 'forceSoln');
                         
             % Generate trajectory
             if trapezoidal == 0
                 trajectory = jtraj(currentPose, newPose, self.steps);
             else
+                % Nil RMRC required for this arm. Trapezoidal will work.
                 trajectory = nan(self.steps,5);
                 s = lspb(0,1,self.steps);
 
@@ -252,7 +300,7 @@ classdef SeggyDs < handle
                 disp(message);
             end
 
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
+            % Uses RMRC to keep drawing speed mostly constant
             self.MoveRobot1(transl(currentCartesian.t' + [distance, 0, 0])* self.originRotation, 1);
 
             % Used to plot drawn lines within simulation
@@ -273,7 +321,7 @@ classdef SeggyDs < handle
                 disp(message);
             end
 
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
+            % Uses RMRC to keep drawing speed mostly constant
             self.MoveRobot1(transl(currentCartesian.t' + [0, distance, 0]) * self.originRotation, 1);
 
             % Used to plot drawn lines within simulation
@@ -1141,7 +1189,6 @@ classdef SeggyDs < handle
             if self.estopFlag
                 if self.debug == 1
                     disp('ERROR: E-STOP ENGAGED');
-                    input('press enter to continue');
                 end
                 return
             end
