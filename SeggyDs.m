@@ -17,7 +17,8 @@ classdef SeggyDs < handle
         robot2ReadyPose = [90, -90, 90, -90, -90, 0];
         
         % Debug
-        debug = 1; % This is to display drawn lines in the simulation
+        debug = 1; % This is to display drawn lines in the simulation and post progress to the command window
+        collisionDetection = 0; % This is to display drawn lines in the simulation
     end
 
     properties
@@ -56,6 +57,11 @@ classdef SeggyDs < handle
         lightCurtainSize = [0.5, 0.01, 0.4];  % Default size
         lightCurtainPosition = [0.25, -0.5, 0];  % Default position
         lightCurtainSafe = true;
+
+        % Collision detection
+        faces = 0;
+        vertex = 0;
+        faceNormals = 0;
     end
 
     methods 
@@ -67,7 +73,7 @@ classdef SeggyDs < handle
 			clf;
 			clc;
             axis([-1 2.25 -1 1 -0.5 2]);
-            view(45,45);
+            view(-90,90);
             hold on;
 
             % Main robot (Dobot Magician)
@@ -99,58 +105,86 @@ classdef SeggyDs < handle
 	end
     
     methods
+        function MoveRobot1(self, targetCartesian, trapezoidal)
+            if nargin < 3
+                trapezoidal = 0;
+            end
+            % get current pose
+            currentPose = self.robot1.model.getpos();
+                        
+            % Find new pose
+            newPose = self.robot1.model.ikine(targetCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
+                        
+            % Generate trajectory
+            if trapezoidal == 0
+                trajectory = jtraj(currentPose, newPose, self.steps);
+            else
+                trajectory = nan(self.steps,5);
+                s = lspb(0,1,self.steps);
+
+                for i = 1:self.steps
+                    trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
+                end
+            end
+
+            % Animate
+            for i = 1:self.steps
+                % Safety
+                self.SafetyCheck();
+
+                % Animate
+                animateStep = trajectory(i,:);
+                self.robot1.model.animate(animateStep);
+                drawnow();
+            end
+        end
+
+        function MoveRobot2(self, targetCartesian, trapezoidal)
+            if nargin < 3
+                trapezoidal = 0;
+            end
+            % get current pose
+            currentPose = self.robot2.model.getpos();
+                        
+            % Find new pose
+            newPose = self.robot2.model.ikine(targetCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
+                        
+            % Generate trajectory
+            if trapezoidal == 0
+                trajectory = jtraj(currentPose, newPose, self.steps);
+            else
+                trajectory = nan(self.steps,5);
+                s = lspb(0,1,self.steps);
+
+                for i = 1:self.steps
+                    trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
+                end
+            end
+
+            % Animate
+            for i = 1:self.steps
+                % Safety
+                self.SafetyCheck();
+
+                % Animate
+                animateStep = trajectory(i,:);
+                self.robot2.model.animate(animateStep);
+                drawnow();
+            end
+        end
+
         function MoveToOrigin(self)
             % Raise pen if lowered
             if self.penRaised == 0
                 self.RaisePen();
             end
 
-            % move to origin
-            % get current pose
-            currentPose = self.robot1.model.getpos();
-            currentCartesian = self.robot1.model.fkine(currentPose);
-                        
-            % move to origin
-            newCartesian = transl(self.originTranslation + [0,0,self.penRaisedOffset]) * self.originRotation;   % Nil rotation data entered seems to work the same as rotx90 deg. why?
-            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
-                        
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-            
             % Add debug message if enabled
             if self.debug == 1
                 disp('moving to origin');
             end
 
-            % Animate
-            for i = 1:size(trajectory)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                        input('press enter to continue');
-                    end
-                    return
-                end
-                animateStep = trajectory(i,:);
-                self.robot1.model.animate(animateStep);
-                drawnow();
-            end
-
-            % Log theoretical location vs acutal location
-            % Log currentCartesian
-            % INSERT CODE HERE
-            % Log actualTransform
-            actualTransform = self.robot1.model.fkine(self.robot1.model.getpos());
-            % INSERT LOG CODE
-            % Calculate delta
-            errorTransform = actualTransform.t' - currentCartesian.t';
-            errorAmplitude = sqrt(errorTransform(1)^2 + errorTransform(2)^2 + errorTransform(3)^2);
-            % INSERT LOG CODE
-            if errorAmplitude > 0.0005  % 0.5mm error
-                % INSERT LOG CODE TO DISPLAY AN ERROR
-            end
-            
+            self.MoveRobot1(transl(self.originTranslation + [0,0,self.penRaisedOffset]) * self.originRotation);       
         end
 
         function RaisePen(self)
@@ -165,35 +199,16 @@ classdef SeggyDs < handle
                 return
             end
 
-            % Get current position
-            currentPose = self.robot1.model.getpos();
-            currentCartesian = self.robot1.model.fkine(currentPose);
-
-             % Lift Pen
-            newCartesian = transl([currentCartesian.t(1), currentCartesian.t(2), (self.originTranslation(3) + self.penRaisedOffset)])* self.originRotation;
-            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
-            
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-            
             % Add debug message if enabled
             if self.debug == 1
                 disp('Lifting Pen');
             end
 
-            % Animate
-            for i = 1:size(trajectory)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
-                animateStep = trajectory(i,:);
-                self.robot1.model.animate(animateStep);
-                drawnow();
-            end
+            % Get current position
+            currentPose = self.robot1.model.getpos();
+            currentCartesian = self.robot1.model.fkine(currentPose);
+
+            self.MoveRobot1(transl([currentCartesian.t(1), currentCartesian.t(2), (self.originTranslation(3) + self.penRaisedOffset)])* self.originRotation);
 
             self.penRaised = 1;
 
@@ -215,31 +230,7 @@ classdef SeggyDs < handle
             currentPose = self.robot1.model.getpos();
             currentCartesian = self.robot1.model.fkine(currentPose);
 
-             % Lift Pen
-            newCartesian = transl([currentCartesian.t(1), currentCartesian.t(2), (self.originTranslation(3) + self.penOffset)])* self.originRotation;
-            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
-            
-            % Generate trajectory
-            trajectory = jtraj(currentPose, newPose, self.steps);
-            
-            % Add debug message if enabled
-            if self.debug == 1
-                disp('Lowering Pen');
-            end
-
-            % Animate
-            for i = 1:size(trajectory)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
-                animateStep = trajectory(i,:);
-                self.robot1.model.animate(animateStep);
-                drawnow();
-            end
+            self.MoveRobot1(transl([currentCartesian.t(1), currentCartesian.t(2), (self.originTranslation(3) + self.penOffset)])* self.originRotation);
 
             self.penRaised = 0;
 
@@ -250,47 +241,20 @@ classdef SeggyDs < handle
             currentPose = self.robot1.model.getpos();
             currentCartesian = self.robot1.model.fkine(currentPose);
 
-            % Move one segment to the right
-            newCartesian = transl(currentCartesian.t' + [distance, 0, 0])* self.originRotation;
-            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
-            
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-            s = lspb(0,1,self.steps);
-            
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-            
             % Add debug message if enabled
             if self.debug == 1
-                message = sprintf('Jogging in X axis. Distance: %d', distance);
+                message = sprintf('Jogging in X axis. Distance(m): %d', distance);
                 disp(message);
             end
 
-            % Animate
-            for i = 1:size(trajectory)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
-                animateStep = trajectory(i,:);
-                self.robot1.model.animate(animateStep);
-                drawnow();
-            end
+            % Uses trapezoidal trajectory to keep drawing speed mostly constant
+            self.MoveRobot1(transl(currentCartesian.t' + [distance, 0, 0])* self.originRotation, 1);
 
             % Used to plot drawn lines within simulation
             if (self.debug == 1) && (self.penRaised == 0)
                 endPoint = self.robot1.model.fkine(self.robot1.model.getpos());
                 plot3([currentCartesian.t(1),endPoint.t(1)], [currentCartesian.t(2), endPoint.t(2)], [currentCartesian.t(3) - self.drawingOffset, endPoint.t(3) - self.drawingOffset]);
             end
-
-            % INSERT LOG CODE
-            % Compare where should be in theory to where is currently
         end
 
         function JogY(self, distance)
@@ -298,47 +262,20 @@ classdef SeggyDs < handle
             currentPose = self.robot1.model.getpos();
             currentCartesian = self.robot1.model.fkine(currentPose);  % is this needed?
 
-            % Move one segment to the right
-            newCartesian = transl(currentCartesian.t' + [0, distance, 0]) * self.originRotation;
-            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
-            
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-            s = lspb(0,1,self.steps);
-            
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-
             % Add debug message if enabled
             if self.debug == 1
-                message = sprintf('Jogging in Y axis. Distance: %d', distance);
+                message = sprintf('Jogging in Y axis. Distance(m): %d', distance);
                 disp(message);
             end
-            
-            % Animate
-            for i = 1:size(trajectory)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
-                animateStep = trajectory(i,:);
-                self.robot1.model.animate(animateStep);
-                drawnow();
-            end
+
+            % Uses trapezoidal trajectory to keep drawing speed mostly constant
+            self.MoveRobot1(transl(currentCartesian.t' + [0, distance, 0]) * self.originRotation, 1);
 
             % Used to plot drawn lines within simulation
             if (self.debug == 1) && (self.penRaised == 0)
                 endPoint = self.robot1.model.fkine(self.robot1.model.getpos());
                 plot3([currentCartesian.t(1),endPoint.t(1)], [currentCartesian.t(2), endPoint.t(2)], [currentCartesian.t(3) - self.drawingOffset, endPoint.t(3) - self.drawingOffset]);
             end
-
-            % INSERT LOG CODE
-            % Compare where should be in theory to where is currently
         end
         
         function Number0(self, digitOrigin)
@@ -347,40 +284,13 @@ classdef SeggyDs < handle
                 self.RaisePen();
             end
 
-            % Get current pose
-            currentPose = self.robot1.model.getpos();
-
-            % Move to digit origin
-            newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation;
-            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
-
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-            s = lspb(0,1,self.steps);
-
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-
             % Add debug message if enabled
             if self.debug == 1
                 disp('Moving to digit origin');
             end
-
-            % Animate
-            for i = 1:size(trajectory)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
-                animateStep = trajectory(i,:);
-                self.robot1.model.animate(animateStep);
-                drawnow();
-            end
+            
+            % Move to digit Origin
+            self.MoveRobot1(transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation);
             
             % Lower pen
             self.LowerPen();
@@ -406,41 +316,13 @@ classdef SeggyDs < handle
                 self.RaisePen();
             end
 
-            % Get current pose
-            currentPose = self.robot1.model.getpos();
-
-            % Move to digit origin
-            newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation;
-            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
-
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-
-            s = lspb(0,1,self.steps);
-
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-
             % Add debug message if enabled
             if self.debug == 1
                 disp('Moving to digit origin');
             end
 
-            % Animate
-            for i = 1:size(trajectory)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
-                animateStep = trajectory(i,:);
-                self.robot1.model.animate(animateStep);
-                drawnow();
-            end
+            % Move to digit Origin
+            self.MoveRobot1(transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation);
             
             % Move one segment to the right and lower pen
             self.JogY(-self.segmentLength)
@@ -464,41 +346,13 @@ classdef SeggyDs < handle
                 self.RaisePen();
             end
 
-            % Get current pose
-            currentPose = self.robot1.model.getpos();
-
-            % Move to digit origin
-            newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation;
-            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
-
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-
-            s = lspb(0,1,self.steps);
-
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-
             % Add debug message if enabled
             if self.debug == 1
                 disp('Moving to digit origin');
             end
 
-            % Animate
-            for i = 1:size(trajectory)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
-                animateStep = trajectory(i,:);
-                self.robot1.model.animate(animateStep);
-                drawnow();
-            end
+            % Move to digit Origin
+            self.MoveRobot1(transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation);
 
             % Lower pen
             self.LowerPen();
@@ -525,41 +379,13 @@ classdef SeggyDs < handle
                 self.RaisePen();
             end
 
-            % Get current pose
-            currentPose = self.robot1.model.getpos();
-
-            % Move to digit origin
-            newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation;
-            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
-
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-
-            s = lspb(0,1,self.steps);
-
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-
             % Add debug message if enabled
             if self.debug == 1
                 disp('Moving to digit origin');
             end
 
-            % Animate
-            for i = 1:size(trajectory)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
-                animateStep = trajectory(i,:);
-                self.robot1.model.animate(animateStep);
-                drawnow();
-            end
+            % Move to digit Origin
+            self.MoveRobot1(transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation);
 
             % Lower pen
             self.LowerPen();
@@ -588,41 +414,13 @@ classdef SeggyDs < handle
                 self.RaisePen();
             end
 
-            % Get current pose
-            currentPose = self.robot1.model.getpos();
-
-            % Move to digit origin
-            newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation;
-            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
-
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-
-            s = lspb(0,1,self.steps);
-
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-
             % Add debug message if enabled
             if self.debug == 1
                 disp('Moving to digit origin');
             end
 
-            % Animate
-            for i = 1:size(trajectory)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
-                animateStep = trajectory(i,:);
-                self.robot1.model.animate(animateStep);
-                drawnow();
-            end
+            % Move to digit Origin
+            self.MoveRobot1(transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation);
 
             % Lower pen
             self.LowerPen();
@@ -650,41 +448,13 @@ classdef SeggyDs < handle
                 self.RaisePen();
             end
 
-            % Get current pose
-            currentPose = self.robot1.model.getpos();
-
-            % Move to digit origin
-            newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation;
-            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
-
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-
-            s = lspb(0,1,self.steps);
-
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-
             % Add debug message if enabled
             if self.debug == 1
                 disp('Moving to digit origin');
             end
 
-            % Animate
-            for i = 1:size(trajectory)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
-                animateStep = trajectory(i,:);
-                self.robot1.model.animate(animateStep);
-                drawnow();
-            end
+            % Move to digit Origin
+            self.MoveRobot1(transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation);
 
             % Move one segment to the right then lower pen
             self.JogY(-self.segmentLength)
@@ -712,41 +482,13 @@ classdef SeggyDs < handle
                 self.RaisePen();
             end
 
-            % Get current pose
-            currentPose = self.robot1.model.getpos();
-
-            % Move to digit origin
-            newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation;
-            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
-
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-
-            s = lspb(0,1,self.steps);
-
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-
             % Add debug message if enabled
             if self.debug == 1
                 disp('Moving to digit origin');
             end
 
-            % Animate
-            for i = 1:size(trajectory)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
-                animateStep = trajectory(i,:);
-                self.robot1.model.animate(animateStep);
-                drawnow();
-            end
+            % Move to digit Origin
+            self.MoveRobot1(transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation);
 
             % Move one segment to the right then lower pen
             self.JogY(-self.segmentLength)
@@ -773,41 +515,13 @@ classdef SeggyDs < handle
                 self.RaisePen();
             end
 
-            % Get current pose
-            currentPose = self.robot1.model.getpos();
-
-            % Move to digit origin
-            newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation;
-            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
-
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-
-            s = lspb(0,1,self.steps);
-
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-
             % Add debug message if enabled
             if self.debug == 1
                 disp('Moving to digit origin');
             end
 
-            % Animate
-            for i = 1:size(trajectory)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
-                animateStep = trajectory(i,:);
-                self.robot1.model.animate(animateStep);
-                drawnow();
-            end
+            % Move to digit Origin
+            self.MoveRobot1(transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation);
 
             % Lower pen
             self.LowerPen();
@@ -831,41 +545,13 @@ classdef SeggyDs < handle
                 self.RaisePen();
             end
 
-            % Get current pose
-            currentPose = self.robot1.model.getpos();
-
-            % Move to digit origin
-            newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation;
-            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
-
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-
-            s = lspb(0,1,self.steps);
-
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-
             % Add debug message if enabled
             if self.debug == 1
                 disp('Moving to digit origin');
             end
 
-            % Animate
-            for i = 1:size(trajectory)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
-                animateStep = trajectory(i,:);
-                self.robot1.model.animate(animateStep);
-                drawnow();
-            end
+            % Move to digit Origin
+            self.MoveRobot1(transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation);
 
             % Lower pen
             self.LowerPen();
@@ -895,41 +581,13 @@ classdef SeggyDs < handle
                 self.RaisePen();
             end
 
-            % Get current pose
-            currentPose = self.robot1.model.getpos();
-
-            % Move to digit origin
-            newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation;
-            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
-
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-
-            s = lspb(0,1,self.steps);
-
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-
             % Add debug message if enabled
             if self.debug == 1
                 disp('Moving to digit origin');
             end
 
-            % Animate
-            for i = 1:size(trajectory)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
-                animateStep = trajectory(i,:);
-                self.robot1.model.animate(animateStep);
-                drawnow();
-            end
+            % Move to digit Origin
+            self.MoveRobot1(transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation);
 
             % Move right and down then Lower pen
             self.JogY(-self.segmentLength);
@@ -957,41 +615,13 @@ classdef SeggyDs < handle
                 self.RaisePen();
             end
 
-            % Get current pose
-            currentPose = self.robot1.model.getpos();
-
-            % Move to digit origin
-            newCartesian = transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation;
-            newPose = self.robot1.model.ikine(newCartesian, 'q0', currentPose, 'mask', [1 1 1 0 1 1], 'forceSoln');
-
-            % Generate trajectory
-            % Uses trapezoidal trajectory to keep drawing speed mostly constant
-            trajectory = nan(self.steps,5);
-
-            s = lspb(0,1,self.steps);
-
-            for i = 1:self.steps
-                trajectory(i,:) = (1-s(i))*currentPose + s(i)*newPose;
-            end
-
             % Add debug message if enabled
             if self.debug == 1
                 disp('Moving to digit origin');
             end
 
-            % Animate
-            for i = 1:size(trajectory)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
-                animateStep = trajectory(i,:);
-                self.robot1.model.animate(animateStep);
-                drawnow();
-            end
+            % Move to digit Origin
+            self.MoveRobot1(transl(digitOrigin + [0, 0, self.penRaisedOffset]) * self.originRotation);
             
 
             % Move right and down then Lower pen
@@ -1262,7 +892,6 @@ classdef SeggyDs < handle
                 moveRobot1 = 1;
             end
             
-
             if currentPose2 == self.robot2ReadyPose
                 moveRobot2 = 0;
             else
@@ -1285,15 +914,10 @@ classdef SeggyDs < handle
 
             % Animate
             for i = 1:self.steps
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                        input('press enter to continue');
-                    end
-                    return
-                end
+                % Safety
+                self.SafetyCheck();
 
+                % Animate
                 if moveRobot1 == 1
                     animateStep1 = trajectory1(i,:);
                     self.robot1.model.animate(animateStep1);
@@ -1310,41 +934,19 @@ classdef SeggyDs < handle
 
         function DeliverBox(self, boxLocation)
             %% Move arm 2 to box
-            % Get current pose
-            currentPose2 = self.robot2.model.getpos();
-            currentCartesian2 = self.robot2.model.fkine(currentPose2);
 
-            % Move to box
-            newCartesian2 = transl([boxLocation(1),boxLocation(2),boxLocation(3) + self.robot2EndEffectorOffset]) * troty(-180, 'deg');
-            newPose2 = self.robot2.model.ikine(newCartesian2, 'q0', currentPose2, 'forceSoln');
-            
-            % Generate trajectory
-            trajectory2 = jtraj(currentPose2, newPose2, self.steps);
-            
             % Add debug message if enabled
             if self.debug == 1
                 message = sprintf('Moving to box');
                 disp(message);
             end
 
-            % Animate
-            for i = 1:size(trajectory2)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
-                animateStep = trajectory2(i,:);
-                self.robot2.model.animate(animateStep);
-                drawnow();
-            end
+            self.MoveRobot2(transl([boxLocation(1),boxLocation(2),boxLocation(3) + self.robot2EndEffectorOffset]) * troty(-180, 'deg'));
 
             %% Move box to delivery zone
+
             % Get current pose
             currentPose2 = self.robot2.model.getpos();
-            currentCartesian2 = self.robot2.model.fkine(currentPose2);
 
             % Move to delivery zone
             newCartesian2 = transl([self.deliveryZone(1),self.deliveryZone(2),self.deliveryZone(3) + self.robot2EndEffectorOffset]) * troty(-180, 'deg');
@@ -1361,13 +963,10 @@ classdef SeggyDs < handle
 
             % Animate
             for i = 1:size(trajectory2)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
+                % Safety
+                self.SafetyCheck();
+
+                % Animate
                 animateStep = trajectory2(i,:);
                 TransformMesh(self.objectBox, transl(self.robot2.model.fkine(animateStep).t'-[0,0,self.robot2EndEffectorOffset]));
                 self.robot2.model.animate(animateStep);
@@ -1379,41 +978,18 @@ classdef SeggyDs < handle
 
         function GetBox(self, boxLocation)
             %% Move arm 2 to box
-            % Get current pose
-            currentPose2 = self.robot2.model.getpos();
-            currentCartesian2 = self.robot2.model.fkine(currentPose2);
-
-            % Move to box
-            newCartesian2 = transl([boxLocation(1),boxLocation(2),boxLocation(3) + self.robot2EndEffectorOffset]) * troty(-180, 'deg');
-            newPose2 = self.robot2.model.ikine(newCartesian2, 'q0', currentPose2, 'forceSoln');
-            
-            % Generate trajectory
-            trajectory2 = jtraj(currentPose2, newPose2, self.steps);
-            
             % Add debug message if enabled
             if self.debug == 1
                 message = sprintf('Moving to box');
                 disp(message);
             end
 
-            % Animate
-            for i = 1:size(trajectory2)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
-                animateStep = trajectory2(i,:);
-                self.robot2.model.animate(animateStep);
-                drawnow();
-            end
+            self.MoveRobot2(transl([boxLocation(1),boxLocation(2),boxLocation(3) + self.robot2EndEffectorOffset]) * troty(-180, 'deg'));
+
 
             %% Move box to origin
             % Get current pose
             currentPose2 = self.robot2.model.getpos();
-            currentCartesian2 = self.robot2.model.fkine(currentPose2);
 
             % Move to origin
             newCartesian2 = transl([self.originTranslation(1),self.originTranslation(2),boxLocation(3) + self.robot2EndEffectorOffset]) * troty(-180, 'deg');
@@ -1430,13 +1006,10 @@ classdef SeggyDs < handle
 
             % Animate
             for i = 1:size(trajectory2)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
+                % Safety
+                self.SafetyCheck();
+
+                % Animate
                 animateStep = trajectory2(i,:);
                 self.robot2.model.animate(animateStep);
                 TransformMesh(self.objectBox, transl(self.robot2.model.fkine(animateStep).t'-[0,0,self.robot2EndEffectorOffset]));
@@ -1457,13 +1030,15 @@ classdef SeggyDs < handle
 
             self.MoveToReady();
             
-            %INSERT FUNCTION FOR VISUAL SERVOING TO GET BRICK POSITION
-            boxCartesian = [0.5,-0.3,0.025]; % placeholder for visual servoing
+            % Visual Servoing to find box
+            boxCartesian = self.BoxPosition();
             
+            % Move box to origin point
             self.GetBox(boxCartesian);
+            self.MoveToReady();
 
-            %DO VISUAL SERVOING AGAIN TO GET NEW ORIGIN
-            boxCartesian = self.originTranslation; % placeholder for visual servoing
+            % Visual servoing to set new origin
+            boxCartesian = self.OriginPosition();
             self.originTranslation = boxCartesian;
 
             self.MoveToOrigin();
@@ -1484,40 +1059,16 @@ classdef SeggyDs < handle
             self.MoveToReady();
             
             %% Position arm 2 for colision
-            % Get current pose
-            currentPose2 = self.robot2.model.getpos();
-            currentCartesian2 = self.robot2.model.fkine(currentPose2);
-
-            % Move to origin
-            newCartesian2 = transl([self.originTranslation(1), self.originTranslation(2), self.originTranslation(3) + self.robot2EndEffectorOffset]) * troty(-180, 'deg');
-            newPose2 = self.robot2.model.ikine(newCartesian2, 'q0', currentPose2, 'forceSoln', 'ilimit',1000, 'rlimit',1000, 'slimit',1000);
-            
-            % Generate trajectory
-            trajectory2 = jtraj(currentPose2, newPose2, self.steps);
-            
             % Add debug message if enabled
             if self.debug == 1
                 message = sprintf('moving');
                 disp(message);
             end
 
-            % Animate
-            for i = 1:size(trajectory2)
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
-                animateStep = trajectory2(i,:);
-                self.robot2.model.animate(animateStep);
-                drawnow();
-            end
+            self.MoveRobot2(transl([self.originTranslation(1), self.originTranslation(2), self.originTranslation(3) + self.robot2EndEffectorOffset]) * troty(-180, 'deg'));
 
             self.WriteTime(self.originTranslation + [0, 3*(self.segmentLength + (0.5 * self.segmentLength)), 0]);
             self.MoveToReady();
-
         end
 
         function LightScreenTripSimulation(self)
@@ -1544,13 +1095,10 @@ classdef SeggyDs < handle
 
             % Animate
             for i = 1:self.steps
-                % Check for EStop and cease operation if engaged
-                if self.estopFlag
-                    if self.debug == 1
-                        disp('ERROR: E-STOP ENGAGED');
-                    end
-                    return
-                end
+                % Safety
+                self.SafetyCheck();
+
+                % Animate
                 animateStep1 = trajectory1(i,:);
                 self.robot1.model.animate(animateStep1);
                 animateStep2 = trajectory2(i,:);
@@ -1559,6 +1107,52 @@ classdef SeggyDs < handle
             end
 
             self.MoveToReady();
+        end
+
+        function location = BoxPosition(self)
+            % Add debug message if enabled
+            if self.debug == 1
+                message = sprintf('Finding Box');
+                disp(message);
+            end
+
+            % INSERT CODE
+
+            location = self.deliveryZone; % placeholder for visual servoing
+        end
+
+        function location = OriginPosition(self)
+            % Add debug message if enabled
+            if self.debug == 1
+                message = sprintf('Origin');
+                disp(message);
+            end
+
+            % INSERT CODE
+
+            location = self.originTranslation; % placeholder for visual servoing
+        end
+
+        function SafetyCheck(self)
+            if self.collisionDetection == 1
+                % Check for collisions with the environment, including the light curtain
+                if self.CheckEnvironmentCollisions()
+                    % Handle collision (e.g., engage EStop)
+                    return;
+                end
+
+                % Check if there's an obstacle detected in the light curtain area
+                self.UpdateLightCurtainStatus(true);
+            end
+
+            % Check for EStop and cease operation if engaged
+            if self.estopFlag
+                if self.debug == 1
+                    disp('ERROR: E-STOP ENGAGED');
+                    input('press enter to continue');
+                end
+                return
+            end
         end
         
         function engageEStop(obj)
@@ -1590,26 +1184,30 @@ classdef SeggyDs < handle
             self.lightCurtainPosition = position;
             self.lightCurtainSize = size;
     
-            % Implement collision detecting
-    
             % Set the light curtain to the initial safe state
             self.lightCurtainSafe = true;
         end
 
         function UpdateLightCurtainStatus(self, obstacleDetected)
-
             % Check if the provided 'obstacleDetected' parameter is valid
             if islogical(obstacleDetected)
                 if obstacleDetected
+                    % An obstacle has been detected in the light curtain area
+                    % Call collision detection function
+                    % isCollision = CheckLightCurtainCollision(self.robot1.model, self.robot2.model, self.lightCurtainSize, self.lightCurtainPosition, point);
+                    isCollision = IsCollision(self.robot1, self.robot2, self.robot1.model.getpos(), self.robot2.model.getpos(), self.faces, self.vertex, self.faceNormals);
 
-                    % An obstacle has been detected in the light curtain
-                    % area (need collision detection)
-
-                    % Update the status of the light curtain to be unsafe
-                    self.lightCurtainSafe = false;
-                    % Engage the emergency stop
-                    self.engageEStop();
-                    disp('Obstacle detected in the light curtain area. Emergency Stop Engaged.');
+                    if isCollision
+                        % Collision detected in the light curtain
+                        % Engage the emergency stop
+                        self.engageEStop();
+                        self.lightCurtainSafe = false;
+                        disp('Collision detected in the light curtain area. Emergency Stop Engaged.');
+                    else
+                        % No collision detected
+                        self.lightCurtainSafe = true;
+                        disp('Obstacle detected in the light curtain area. Light curtain is safe.');
+                    end
                 else
                     % No obstacle detected.
                     self.lightCurtainSafe = true;
@@ -1635,6 +1233,89 @@ classdef SeggyDs < handle
          
             % Show the plot
             drawnow;
+        end
+
+        function hasCollision = CheckEnvironmentCollisions(self)
+            % Check for collisions with the environment
+            hasCollision = false;
+
+            % Check robot collisions
+            if self.IsCollision(self.robot1, self.robot2, self.robot1.model.getpos(), self.robot2.model.getpos(), self.faces, self.vertex, self.faceNormals)
+                hasCollision = true;
+                disp('Robot collision detected');
+            end
+
+        end
+
+        function result = IsIntersectionPointInsideLightCurtain(intersectP)
+
+            % Extract the min and max coordinates of the light curtain box
+            minPoint = self.lightCurtainPosition;
+            maxPoint = self.lightCurtainPosition + self.lightCurtainSize;
+
+            % Check if `intersectP` is inside the box
+            if all(intersectP >= minPoint) && all(intersectP <= maxPoint)
+                result = 1;  % `intersectP` is inside the light curtain
+            else
+                result = 0;  % `intersectP` is outside the light curtain
+            end
+        end
+
+        function result = IsCollision(robot1, robot2, qMatrix1, qMatrix2, faces, vertex, faceNormals, returnOnceFound)
+            if nargin < 7
+                returnOnceFound = true;
+            end
+            result = false;
+
+            for qIndex = 1:size(qMatrix1, 1)
+                % Get the transform of every joint for both robots
+                tr1 = GetLinkPoses(qMatrix1(qIndex, :), robot1);
+                tr2 = GetLinkPoses(qMatrix2(qIndex, :), robot2);
+
+                % Check for collisions between each robot and the environment obstacles
+                for i = 1:size(tr1, 3) - 1
+                    for j = 1:size(tr2, 3) - 1
+                        for faceIndex = 1:size(faces, 1)
+                            vertOnPlane = vertex(faces(faceIndex, 1)', :);
+
+                            % Check for collisions with robot1
+                            [intersectP1, check1] = LinePlaneIntersection(faceNormals(faceIndex, :), vertOnPlane, tr1(1:3, 4, i)', tr1(1:3, 4, i + 1)');
+                            if check1 == 1 && IsIntersectionPointInsideTriangle(intersectP1, vertex(faces(faceIndex, :)', :))
+                                result = true;
+                                if returnOnceFound
+                                    return;
+                                end
+                            end
+
+                            % Check for collisions with robot2
+                            [intersectP2, check2] = LinePlaneIntersection(faceNormals(faceIndex, :), vertOnPlane, tr2(1:3, 4, j)', tr2(1:3, 4, j + 1)');
+                            if check2 == 1 && IsIntersectionPointInsideTriangle(intersectP2, vertex(faces(faceIndex, :)', :))
+                                result = true;
+                                if returnOnceFound
+                                    return;
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        function transforms = GetLinkPoses(q, robot)
+            links = robot.model.links;
+            numLinks = length(links);
+            transforms = zeros(4, 4, numLinks + 1);
+            transforms(:, :, 1) = robot.model.base;
+
+            for i = 1:numLinks
+                L = links(i);
+                currentTransform = transforms(:, :, i);
+
+                currentTransform = currentTransform * trotz(q(i) + L.offset) * ...
+                    transl(0, 0, L.d) * transl(L.a, 0, 0) * trotx(L.alpha);
+
+                transforms(:, :, i + 1) = currentTransform;
+            end
         end
 
     end
