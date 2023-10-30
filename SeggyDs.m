@@ -73,7 +73,7 @@ classdef SeggyDs < handle
 			clf;
 			clc;
             axis([-1 2.25 -1 1 -0.5 2]);
-            view(-90,90);
+            view(-45,45);
             hold on;
 
             % Main robot (Dobot Magician)
@@ -94,10 +94,15 @@ classdef SeggyDs < handle
             % Light curtain load in
             self.InitializeLightCurtain(self.lightCurtainSize, self.lightCurtainPosition);
             self.VisualizeLightCurtain();
+
+            % Add debug message if enabled
+            if self.debug == 1
+                disp('initialization complete');
+            end
             
             % Deliverables
-            input('Press enter to begin')
-            self.OperationRun();
+            %input('Press enter to begin')
+            %self.OperationRun();
             %self.ColisionSimulation();
             %self.LightScreenTripSimulation();
             %self.operationRecovery();
@@ -735,23 +740,12 @@ classdef SeggyDs < handle
 
         function operationRecovery(self)
             % make the program continue after E-Stop
-
-            self.MoveToReady();
-
             % Check if program running and cease function if not
             if self.operationRunning == 0
                 return
             end
 
-            % ask if wanting to recover
-            recover = input('E-Stop cleared. Do you wish to resume operation? 1 = resume: ');
-
-            if recover == 1
-                disp('Resuming operation');
-            else
-                disp('cancling operation');
-                return
-            end
+            self.MoveToReady();
 
             % write each digit sequencially which lacks a completion flag
             self.MoveToOrigin();
@@ -934,7 +928,6 @@ classdef SeggyDs < handle
 
         function DeliverBox(self, boxLocation)
             %% Move arm 2 to box
-
             % Add debug message if enabled
             if self.debug == 1
                 message = sprintf('Moving to box');
@@ -944,7 +937,6 @@ classdef SeggyDs < handle
             self.MoveRobot2(transl([boxLocation(1),boxLocation(2),boxLocation(3) + self.robot2EndEffectorOffset]) * troty(-180, 'deg'));
 
             %% Move box to delivery zone
-
             % Get current pose
             currentPose2 = self.robot2.model.getpos();
 
@@ -1124,7 +1116,7 @@ classdef SeggyDs < handle
         function location = OriginPosition(self)
             % Add debug message if enabled
             if self.debug == 1
-                message = sprintf('Origin');
+                message = sprintf('Finding Origin');
                 disp(message);
             end
 
@@ -1315,6 +1307,68 @@ classdef SeggyDs < handle
                     transl(0, 0, L.d) * transl(L.a, 0, 0) * trotx(L.alpha);
 
                 transforms(:, :, i + 1) = currentTransform;
+            end
+        end
+
+        function updateRobot1(self, Robot1JointAngles)
+            % Update the robot model based on provided joint angles
+            self.robot1.model.animate(Robot1JointAngles);
+        end
+
+        function updateRobot2(self, Robot2JointAngles)
+            % Update the robot model based on provided joint angles
+            self.robot2.model.animate(Robot2JointAngles);
+        end
+        
+        function flipEStop(obj)
+            if ~obj.estopFlag
+                obj.estopFlag = true;
+                disp('Emergency Stop Engaged');
+                return;
+            end
+            if obj.estopFlag
+                obj.estopFlag = false;
+                disp('Emergency Stop Disengaged');
+            end
+        end
+
+        function moveTo1(self, x1, y1, z1)
+            % Desired end effector pose
+            T_desired = transl(x1, y1, z1);
+
+            % Compute inverse kinematics for the desired pose
+            q_sol = self.robot1.model.ikcon(T_desired);
+
+            % Current joint configuration
+            q_current = self.robot1.model.getpos();
+
+            % Interpolate between current and target joint angles
+            q_traj = jtraj(q_current, q_sol, self.steps);
+
+            % Animate the movement
+            for k = 1:self.steps
+                self.robot1.model.animate(q_traj(k,:));
+                pause(0);  % Pause for smooth animation. Adjust as needed.
+            end
+        end
+
+        function moveTo2(self, x2, y2, z2)
+            % Desired end effector pose
+            T_desired = transl(x2, y2, z2);
+
+            % Compute inverse kinematics for the desired pose
+            q_sol = self.robot2.model.ikcon(T_desired);
+
+            % Current joint configuration
+            q_current = self.robot2.model.getpos();
+
+            % Interpolate between current and target joint angles
+            q_traj = jtraj(q_current, q_sol, self.steps);
+
+            % Animate the movement
+            for k = 1:self.steps
+                self.robot2.model.animate(q_traj(k,:));
+                pause(0);  % Pause for smooth animation. Adjust as needed.
             end
         end
 
