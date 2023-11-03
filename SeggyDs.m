@@ -5,7 +5,7 @@ classdef SeggyDs < handle
 
         % Drawing
         segmentLength = 0.01; % 1cm
-        steps = 50; % THIS IS LOW FOR TESTING. MAKE ME HIGHER!!!!!
+        steps = 20; % THIS IS LOW FOR TESTING. MAKE ME HIGHER!!!!!
         drawingOffset = 0.055;
         deltaT = 0.05; % Time step for RMRC
 
@@ -19,7 +19,7 @@ classdef SeggyDs < handle
         
         % Debug
         debug = 1; % This is to display drawn lines in the simulation and post progress to the command window
-        collisionDetection = 0; % This is to display drawn lines in the simulation
+        collisionDetection = 1; % turn collision detection off
     end
 
     properties
@@ -28,6 +28,8 @@ classdef SeggyDs < handle
         robot2;
         penOffset = 0.090;
         penRaisedOffset = 0.1;
+        robot1Links;
+        robot2Links;
 
         % Box
         objectBox;
@@ -60,9 +62,15 @@ classdef SeggyDs < handle
         lightCurtainSafe = true;
 
         % Collision detection
-        faces = 0;
-        vertex = 0;
-        faceNormals = 0;
+        % Faces/Vertices/FaceNormals
+        robot1Faces;
+        robot1Vertices;
+        robot1FaceNormals;
+        robot2Faces;
+        robot2Vertices;
+        robot2FaceNormals;
+        lightCurtainVertices;
+        lightCurtainFaceNormals;
     end
 
     methods 
@@ -74,14 +82,14 @@ classdef SeggyDs < handle
 			clf;
 			clc;
             axis([-1 2.25 -1 1 -0.5 2]);
-            view(-45,45);
+            view(-90,90);
             hold on;
 
             % Main robot (Dobot Magician)
             % NOTE: Base turned off in RobotBaseClass.InitiliseRobotPlot() function.
             %       Add 'notiles' to plot3D in function to hide.
             self.robot1 = DobotMagician(transl(0,0,0));
-            self.robot1.model.teach('noname', 'noarrow', 'notiles', 'nojoints');
+            %self.robot1.model.teach('noname', 'noarrow', 'notiles', 'nojoints');
             robot1ReadyPose = deg2rad(self.robot1ReadyPose);
             self.robot1.model.animate(robot1ReadyPose);
 
@@ -102,10 +110,10 @@ classdef SeggyDs < handle
             end
             
             % Deliverables
-            input('Press enter to begin')
-            self.OperationRun();
+            %input('Press enter to begin')
+            %self.OperationRun();
             %self.ColisionSimulation();
-            %self.LightScreenTripSimulation();
+            self.LightScreenTripSimulation();
             %self.operationRecovery();
 		end
 	end
@@ -1175,14 +1183,8 @@ classdef SeggyDs < handle
 
         function SafetyCheck(self)
             if self.collisionDetection == 1
-                % Check for collisions with the environment, including the light curtain
-                if self.CheckEnvironmentCollisions()
-                    % Handle collision (e.g., engage EStop)
-                    return;
-                end
-
                 % Check if there's an obstacle detected in the light curtain area
-                self.UpdateLightCurtainStatus(true);
+                self.checkLightCurtainInterception()
             end
 
             % Check for EStop and cease operation if engaged
@@ -1217,6 +1219,110 @@ classdef SeggyDs < handle
             self.operationRecovery();
         end
 
+        function read_ply_data(self)
+            % Robot 1 PLY file names
+            robot1_ply_files = {
+                'DobotMagiciansLink0.ply',
+                'DobotMagiciansLink1.ply',
+                'DobotMagiciansLink2.ply',
+                'DobotMagiciansLink3.ply',
+                'DobotMagiciansLink4.ply',
+                'DobotMagiciansLink5.ply'
+                };
+
+            % Robot 2 PLY file names
+            robot2_ply_files = {
+                'DobotCR16sLink0.ply',
+                'DobotCR16sLink1.ply',
+                'DobotCR16sLink2.ply',
+                'DobotCR16sLink3.ply',
+                'DobotCR16sLink4.ply',
+                'DobotCR16sLink5.ply',
+                'DobotCR16sLink6.ply'
+                };
+
+            % Read and process PLY files for Robot 1
+            robot1_data = struct;
+            for link = 1:numel(robot1_ply_files)
+                file_name = robot1_ply_files{link};
+                [self.robot1Vertices, self.robot1Faces] = self.read_ply_file(file_name);
+                link_name = sprintf('DobotMagiciansLink%d', link - 1);
+                robot1_data.(link_name).vertices = self.robot1Vertices;
+                robot1_data.(link_name).faces = self.robot1Faces;
+            end
+
+            % Read and process PLY files for Robot 2
+            robot2_data = struct;
+            for link = 1:numel(robot2_ply_files)
+                file_name = robot2_ply_files{link};
+                [self.robot2Vertices, self.robot2Faces] = self.read_ply_file(file_name);
+                link_name = sprintf('DobotCR16sLink%d', link - 1);
+                robot2_data.(link_name).vertices = self.robot2Vertices;
+                robot2_data.(link_name).faces = self.robot2Faces;
+            end
+
+
+            % % Display the data for Robot 1
+            % fprintf('Robot 1 Data:\n');
+            % self.display_robot_data(robot1_data);
+            %
+            % % Display the data for Robot 2
+            % fprintf('Robot 2 Data:\n');
+            % self.display_robot_data(robot2_data);
+        end
+
+        function display_robot_data(~, robot_data)
+            field_names = fieldnames(robot_data);
+            for link = 1:numel(field_names)
+                link_name = field_names{link};
+                if isfield(robot_data, link_name)
+                    vertices = robot_data.(link_name).vertices;
+                    faces = robot_data.(link_name).faces;
+                    disp(['Link Name: ' link_name]);
+                    disp('Vertices:');
+                    disp(vertices);
+                    disp('Faces:');
+                    disp(faces);
+                end
+            end
+        end
+
+        function [vertices, faces] = read_ply_file(~, file_name)
+            try
+                ply_data = plyread(file_name);
+                vertices = cell2mat(num2cell([ply_data.vertex.x, ply_data.vertex.y, ply_data.vertex.z], 2));
+                faces = cell2mat(ply_data.face.vertex_indices);
+            catch
+                error(['Error reading ' file_name]);
+                vertices = {};
+                faces = {};
+            end
+        end
+
+        function calculateFaceNormals(self)
+            self.robot1FaceNormals = self.calculateFaceNormalsForRobot(self.robot1Vertices, self.robot1Faces);
+            self.robot2FaceNormals = self.calculateFaceNormalsForRobot(self.robot2Vertices, self.robot2Faces);
+        end
+        
+        function faceNormals = calculateFaceNormalsForRobot(~, vertices, faces)
+            numFaces = size(faces, 1);
+            faceNormals = zeros(numFaces, 3); % Initialize a matrix to store the face normals
+    
+            for i = 1:numFaces
+                face = faces(i);
+                if length(face) == 3
+                    % Calculate face normal using cross product
+                    v1 = vertices(face(2), :) - vertices(face(1), :);
+                    v2 = vertices(face(3), :) - vertices(face(1), :);
+                    normal = cross(v1, v2);
+                    normal = normal / norm(normal);
+                    faceNormals(i, :) = normal;  % Store the face normal in the matrix
+                else
+                    faceNormals(i, :) = zeros(1, 3);  % Handle the case when face is not a triangle
+                end
+            end
+        end
+
         function InitializeLightCurtain(self, size, position)
 
             % Initialize the light curtain with custom parameters
@@ -1225,6 +1331,24 @@ classdef SeggyDs < handle
     
             % Set the light curtain to the initial safe state
             self.lightCurtainSafe = true;
+        end
+
+        function InitializeLightCurtainVertices(self)
+            % Calculate the vertices of the light curtain bounding box
+            halfWidth = self.lightCurtainSize(1) / 2;
+            halfLength = self.lightCurtainSize(2) / 2;
+            halfHeight = self.lightCurtainSize(3) / 2;
+        
+            self.lightCurtainVertices = [
+                self.lightCurtainPosition + [-halfWidth, -halfLength, -halfHeight];
+                self.lightCurtainPosition + [halfWidth, -halfLength, -halfHeight];
+                self.lightCurtainPosition + [halfWidth, halfLength, -halfHeight];
+                self.lightCurtainPosition + [-halfWidth, halfLength, -halfHeight];
+                self.lightCurtainPosition + [-halfWidth, -halfLength, halfHeight];
+                self.lightCurtainPosition + [halfWidth, -halfLength, halfHeight];
+                self.lightCurtainPosition + [halfWidth, halfLength, halfHeight];
+                self.lightCurtainPosition + [-halfWidth, halfLength, halfHeight];
+            ];
         end
 
         function UpdateLightCurtainStatus(self, obstacleDetected)
@@ -1269,69 +1393,97 @@ classdef SeggyDs < handle
 
             % Create the filled plane using surf
             surf(x, y, z, 'FaceColor', 'r', 'FaceAlpha', 0.5, 'EdgeColor', 'none');
+            % Create the bounding box using patch
+            patch(x, y, z, 'r', 'FaceAlpha', 0.5, 'EdgeColor', 'r', 'FaceColor', 'none');
          
             % Show the plot
             drawnow;
         end
 
-        function hasCollision = CheckEnvironmentCollisions(self)
-            % Check for collisions with the environment
-            hasCollision = false;
-
-            % Check robot collisions
-            if self.IsCollision(self.robot1, self.robot2, self.robot1.model.getpos(), self.robot2.model.getpos(), self.faces, self.vertex, self.faceNormals)
-                hasCollision = true;
-                disp('Robot collision detected');
-            end
-
-        end
-
-        function result = IsIntersectionPointInsideLightCurtain(intersectP)
-
-            % Extract the min and max coordinates of the light curtain box
-            minPoint = self.lightCurtainPosition;
-            maxPoint = self.lightCurtainPosition + self.lightCurtainSize;
-
-            % Check if `intersectP` is inside the box
-            if all(intersectP >= minPoint) && all(intersectP <= maxPoint)
-                result = 1;  % `intersectP` is inside the light curtain
-            else
-                result = 0;  % `intersectP` is outside the light curtain
+        function CalculateLightCurtainFaceNormals(self)
+            % Initialize an array to store the face normals
+            self.lightCurtainFaceNormals = zeros(6, 3);       
+        
+            % Define the order of vertices that form the faces
+            faceVertexOrder = [1, 2, 3, 4; 5, 6, 7, 8; 1, 2, 6, 5; 2, 3, 7, 6; 3, 4, 8, 7; 4, 1, 5, 8];
+        
+            % Calculate face normals for each face
+            for i = 1:6
+                % Get the vertices that form the current face
+                currentFaceVertices = self.lightCurtainVertices(faceVertexOrder(i, :), :);
+        
+                % Calculate the face normal using the cross product of the vectors
+                faceNormal = cross(currentFaceVertices(2, :) - currentFaceVertices(1, :), currentFaceVertices(4, :) - currentFaceVertices(1, :));
+                faceNormal = faceNormal / norm(faceNormal);  % Normalize the face normal
+        
+                % Store the calculated face normal
+                self.lightCurtainFaceNormals(i, :) = faceNormal;
             end
         end
+        
+        function checkLightCurtainInterception(self)
+            % Get the current poses of both robots
+            currentPose1 = self.robot1.model.getpos();
+            currentPose2 = self.robot2.model.getpos();
+        
+            % Iterate over the faces of the light curtain to check interceptions
+            for i = 1:size(self.lightCurtainFaceNormals, 1)
+                faceNormal = self.lightCurtainFaceNormals(i, :);
+        
+                % Calculate the position of a point on the face
+                facePosition = self.lightCurtainVertices(i, :);
+        
+                % Check if the point on the face is in front of the face (dot product > 0)
+                % for both robots
+                if dot(facePosition - currentPose1(1:3), faceNormal) > 0 || ...
+                   dot(facePosition - currentPose2(1:3), faceNormal) > 0
+                    % Engage the emergency stop
+                    self.engageEStop();
+                    return; % Exit the loop as soon as interception is detected
+                end
+            end
+        end
 
-        function result = IsCollision(robot1, robot2, qMatrix1, qMatrix2, faces, vertex, faceNormals, returnOnceFound)
-            if nargin < 7
+
+        function result = IsCollisionBetweenRobots(self, qMatrix1, qMatrix2, returnOnceFound)
+            if nargin < 3
                 returnOnceFound = true;
             end
             result = false;
-
+        
             for qIndex = 1:size(qMatrix1, 1)
-                % Get the transform of every joint for both robots
-                tr1 = GetLinkPoses(qMatrix1(qIndex, :), robot1);
-                tr2 = GetLinkPoses(qMatrix2(qIndex, :), robot2);
-
+                % Get the transform of every joint for both robots at this configuration
+                tr1 = self.GetLinkPoses(qMatrix1(qIndex, :), self.robot1.model);
+                tr2 = self.GetLinkPoses(qMatrix2(qIndex, :), self.robot2.model);
+        
                 % Check for collisions between each robot and the environment obstacles
                 for i = 1:size(tr1, 3) - 1
                     for j = 1:size(tr2, 3) - 1
-                        for faceIndex = 1:size(faces, 1)
-                            vertOnPlane = vertex(faces(faceIndex, 1)', :);
+                        for faceIndex1 = 1:size(self.robot1Faces, 1)
+                            for faceIndex2 = 1:size(self.robot2Faces,1)
 
-                            % Check for collisions with robot1
-                            [intersectP1, check1] = LinePlaneIntersection(faceNormals(faceIndex, :), vertOnPlane, tr1(1:3, 4, i)', tr1(1:3, 4, i + 1)');
-                            if check1 == 1 && IsIntersectionPointInsideTriangle(intersectP1, vertex(faces(faceIndex, :)', :))
-                                result = true;
-                                if returnOnceFound
-                                    return;
+                                % Display the values of faceIndex1 and faceIndex2
+                                disp(['faceIndex1 = ' num2str(faceIndex1) ', faceIndex2 = ' num2str(faceIndex2)]);
+
+                                vertOnPlane1 = self.robot1Vertices(self.robot1Faces(faceIndex1,1)',:);
+                                vertOnPlane2 = self.robot2Vertices(self.robot2Faces(faceIndex2,1)',:);
+                                
+                                % Check for collisions with robot1
+                                [intersectP1, check1] = LinePlaneIntersection(self.robot1FaceNormals(faceIndex1, :), vertOnPlane1, tr1(1:3, 4, i)', tr1(1:3, 4, i + 1)');
+                                if check1 == 1 && IsIntersectionPointInsideTriangle(intersectP1, vertOnPlane1)
+                                    result = true;
+                                    if returnOnceFound
+                                        return;
+                                    end
                                 end
-                            end
-
-                            % Check for collisions with robot2
-                            [intersectP2, check2] = LinePlaneIntersection(faceNormals(faceIndex, :), vertOnPlane, tr2(1:3, 4, j)', tr2(1:3, 4, j + 1)');
-                            if check2 == 1 && IsIntersectionPointInsideTriangle(intersectP2, vertex(faces(faceIndex, :)', :))
-                                result = true;
-                                if returnOnceFound
-                                    return;
+        
+                                % Check for collisions with robot2
+                                [intersectP2, check2] = LinePlaneIntersection(self.robot2FaceNormals(faceIndex2, :), vertOnPlane2, tr2(1:3, 4, j)', tr2(1:3, 4, j + 1)');
+                                if check2 == 1 && IsIntersectionPointInsideTriangle(intersectP2, vertOnPlane2)
+                                    result = true;
+                                    if returnOnceFound
+                                        return;
+                                    end
                                 end
                             end
                         end
@@ -1340,20 +1492,34 @@ classdef SeggyDs < handle
             end
         end
 
-        function transforms = GetLinkPoses(q, robot)
-            links = robot.model.links;
-            numLinks = length(links);
-            transforms = zeros(4, 4, numLinks + 1);
-            transforms(:, :, 1) = robot.model.base;
+        function isInside = IsIntersectionPointInsideTriangle(intersectP, triangleVertices)
+            % Calculate barycentric coordinates of the intersection point
+            u = ((triangleVertices(2,2) - triangleVertices(3,2)) * (intersectP(1) - triangleVertices(3,1)) + (triangleVertices(3,1) - triangleVertices(2,1)) * (intersectP(2) - triangleVertices(3,2))) / ...
+                ((triangleVertices(2,2) - triangleVertices(3,2)) * (triangleVertices(1,1) - triangleVertices(3,1)) + (triangleVertices(3,1) - triangleVertices(2,1)) * (triangleVertices(1,2) - triangleVertices(3,2)));
+            v = ((triangleVertices(3,2) - triangleVertices(1,2)) * (intersectP(1) - triangleVertices(3,1)) + (triangleVertices(1,1) - triangleVertices(3,1)) * (intersectP(2) - triangleVertices(3,2))) / ...
+                ((triangleVertices(2,2) - triangleVertices(3,2)) * (triangleVertices(1,1) - triangleVertices(3,1)) + (triangleVertices(3,1) - triangleVertices(2,1)) * (triangleVertices(1,2) - triangleVertices(3,2)));
+        
+            % Check if the point is inside the triangle
+            isInside = u >= 0 && v >= 0 && u + v <= 1;
+        end
 
-            for i = 1:numLinks
-                L = links(i);
-                currentTransform = transforms(:, :, i);
 
-                currentTransform = currentTransform * trotz(q(i) + L.offset) * ...
-                    transl(0, 0, L.d) * transl(L.a, 0, 0) * trotx(L.alpha);
-
-                transforms(:, :, i + 1) = currentTransform;
+        function [linkPoses] = GetLinkPoses(~, q, robot)
+            % Get the links for the given robot
+            links = robot.links;
+        
+            % Initialize an array to store the link poses
+            linkPoses = zeros(4, 4, length(links) + 1);
+            linkPoses(:, :, 1) = robot.base;
+        
+            for i = 1:length(links)
+                link = links(1,i);
+        
+                % Get the transformation matrix for the current link
+                T = trotz(q(1,i) + link.offset) * transl(0, 0, link.d) * transl(link.a, 0, 0) * trotx(link.alpha);
+        
+                % Update the link poses with the current transformation
+                linkPoses(:, :, i + 1) = linkPoses(:, :, i) * T;
             end
         end
 
